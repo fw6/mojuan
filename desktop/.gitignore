@@ -39,5 +39,5 @@ src-tauri/tauri
 .scratch
 
 # Android release 包（apksigner 签名产物，release.yml 与本地构建同名落在这里）
-mojuan-*-android.apk
-mojuan-*-android.apk.idsig
+*.apk
+*.apk.idsig
