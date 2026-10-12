@@ -1,0 +1,21 @@
+Cargo.toml
+  s_16759e9ae56874::t_7b6f5ea0622d52 17
+Cargo.lock
+  s_16759e9ae56874::t_744ea14a6a85d4 2407,2432
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.49-trip",
+  "base_commit_sha": "10738d3bfd53d4dc2a9ab7dce3dc0036de73f4c0",
+  "prompts": {},
+  "sessions": {
+    "s_16759e9ae56874": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_ace295f9-0218-4373-955b-6ca505653696",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
