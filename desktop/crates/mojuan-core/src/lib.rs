@@ -16,22 +16,21 @@ pub fn mojuan_version() -> String {
 }
 
 /// 爬虫引擎统一入口：返回 JSON 字符串（失败返回空 JSON）。
-/// `script`：该 source 的运行时源脚本（wayfinder #15 契约；缓存类 op 忽略）。
+/// 源由已装源注册表（`crawler::registry`）按 sourceId 查出，其文档交给源运行时解释。
 /// `cache_dir`：结果缓存目录（空串禁用）；列表/详情类 op 的成功结果写入内存 LRU + 磁盘。
-pub fn crawl(op: &str, source: &str, payload: &str, script: &str, cache_dir: &str) -> String {
-    crawler::crawl(op, source, payload, script, cache_dir)
+pub fn crawl(op: &str, source: &str, payload: &str, cache_dir: &str) -> String {
+    crawler::crawl(op, source, payload, cache_dir)
 }
 
 /// 读取抓取结果缓存（不触发网络）：命中返回 `{"data": <结果>, "fetchedAt": <unix_ms>}`，
 /// 未命中返回 `null`。前端 stale-while-revalidate 的 stale 一侧（先渲染缓存再拉最新）。
-pub fn cached_result(
-    op: &str,
-    source: &str,
-    payload: &str,
-    script: &str,
-    cache_dir: &str,
-) -> String {
-    crawler::cached_result(op, source, payload, script, cache_dir)
+pub fn cached_result(op: &str, source: &str, payload: &str, cache_dir: &str) -> String {
+    crawler::cached_result(op, source, payload, cache_dir)
+}
+
+/// 源文档的 JSON Schema（编辑器补全与源仓库提交时校验用；由 Rust 结构体生成，见 ADR-0002）。
+pub fn source_schema() -> String {
+    crawler::doc::SourceDoc::schema_json()
 }
 
 /// WebDAV PUT 备份：返回 JSON `{"success","status"}`。

@@ -22,7 +22,6 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_mcp_bridge::init());
     }
     builder
-        .manage(commands::SourceRegistry::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
@@ -48,8 +47,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::crawl,
             commands::crawl_cached,
-            commands::bundled_sources,
             commands::sync_sources,
+            commands::source_schema,
             commands::source_errors,
             commands::webdav_put,
             commands::webdav_get,

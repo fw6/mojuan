@@ -5,39 +5,26 @@
 
 use crate::{APP_CACHE_DIR, DOWNLOAD_DIR, IMG_PROXY_PORT};
 use std::collections::HashMap;
-use std::sync::Mutex;
 use tauri::Manager;
 
-/// 源脚本运行时 registry：sourceId -> script（前端从 sources.json 同步进来；
-/// 未同步的源 crawl 返回空结果，见 mojuan-core 分发保护）。
-pub struct SourceRegistry(pub Mutex<HashMap<String, String>>);
-
-impl Default for SourceRegistry {
-    fn default() -> Self {
-        Self(Mutex::new(HashMap::new()))
-    }
-}
-
 /// 爬虫引擎统一入口（转发 Rust core，返回 JSON 字符串）。
-/// 成功结果由 core 写入结果缓存（cache_dir），供 crawl_cached 读取。
-/// 源脚本错误（#17 呈现）经 mojuan-core 错误 registry 记录，这里追加到 app 日志目录。
+/// 已装源在 mojuan-core 的源注册表里（前端经 `sync_sources` 同步），成功结果由 core 写入
+/// 结果缓存（cache_dir），供 crawl_cached 读取。源错误经 core 的注册表记录，这里追加到 app 日志目录。
 #[tauri::command]
 pub async fn crawl(
     app: tauri::AppHandle,
-    state: tauri::State<'_, SourceRegistry>,
     op: String,
     source: String,
     payload: String,
 ) -> Result<String, String> {
     let src = source.clone();
-    let script = state.0.lock().unwrap().get(&source).cloned().unwrap_or_default();
     let cache_dir = APP_CACHE_DIR.get().cloned().unwrap_or_default();
     let out = tauri::async_runtime::spawn_blocking(move || {
-        mojuan_core::crawl(&op, &src, &payload, &script, &cache_dir)
+        mojuan_core::crawl(&op, &src, &payload, &cache_dir)
     })
     .await
     .map_err(|e| format!("爬虫任务异常终止: {e}"))?;
-    if let Some((msg, at)) = mojuan_core::crawler::sources::last_error(&source) {
+    if let Some((msg, at)) = mojuan_core::crawler::registry::last_error(&source) {
         if let Ok(log_dir) = app.path().app_log_dir() {
             let _ = std::fs::create_dir_all(&log_dir);
             let line = format!("[{at}] {source}: {msg}\n");
@@ -60,52 +47,46 @@ pub async fn crawl(
 /// 先渲染缓存，再调 crawl 拉最新并回写。
 #[tauri::command]
 pub async fn crawl_cached(
-    state: tauri::State<'_, SourceRegistry>,
     op: String,
     source: String,
     payload: String,
 ) -> Result<String, String> {
-    let script = state.0.lock().unwrap().get(&source).cloned().unwrap_or_default();
     let cache_dir = APP_CACHE_DIR.get().cloned().unwrap_or_default();
     tauri::async_runtime::spawn_blocking(move || {
-        mojuan_core::cached_result(&op, &source, &payload, &script, &cache_dir)
+        mojuan_core::cached_result(&op, &source, &payload, &cache_dir)
     })
     .await
     .map_err(|e| format!("缓存读取异常终止: {e}"))
 }
 
-/// 内置源清单（顺序 = 源注册表的注册顺序，前端据此排源列表；首个为默认源）。
-/// 每个源带显示名、脚本（debug 读磁盘实现 #17 开发回路，release 用 include_str! 打包）
-/// 与图片热链对（前端图片代理与下载 Referer 用）。
+/// 同步已装源：源运行时（可选，缺省用内置）+ 有序的源文档列表。
+/// 逐份校验文档，坏的跳过并保留已装版本；返回被接受的源的前端事实（显示名与热链对）
+/// 与被拒绝的原因（前端源管理页据此呈现）。
 #[tauri::command]
-pub fn bundled_sources() -> Vec<serde_json::Value> {
-    mojuan_core::crawler::sources::SOURCES
-        .iter()
-        .map(|(id, src)| {
-            serde_json::json!({
-                "id": id,
-                "title": src.title(),
-                "script": mojuan_core::js::sources::load(id).unwrap_or_default(),
-                "hotlinkReferers": src
-                    .hotlink_referers()
-                    .iter()
-                    .map(|h| serde_json::json!({ "domain": h.domain, "referer": h.referer }))
-                    .collect::<Vec<_>>(),
-            })
-        })
-        .collect()
+pub fn sync_sources(payload: String) -> Result<String, String> {
+    let payload: mojuan_core::crawler::registry::SyncPayload =
+        serde_json::from_str(&payload).map_err(|e| format!("同步参数非法: {e}"))?;
+    let outcome = mojuan_core::crawler::registry::sync(payload);
+    Ok(serde_json::json!({
+        "sources": outcome.accepted,
+        "rejected": outcome.rejected
+            .into_iter()
+            .map(|(id, reason)| serde_json::json!({ "id": id, "reason": reason }))
+            .collect::<Vec<_>>(),
+    })
+    .to_string())
 }
 
-/// 前端启动/更新后把 sources.json 里的脚本同步进 registry。
+/// 源文档的 JSON Schema（源管理页展示与手动导入时的校验提示用）。
 #[tauri::command]
-pub fn sync_sources(state: tauri::State<'_, SourceRegistry>, entries: HashMap<String, String>) {
-    *state.0.lock().unwrap() = entries;
+pub fn source_schema() -> String {
+    mojuan_core::source_schema()
 }
 
 /// 各源最近一次错误（Sources 错误行 / Settings 源区展示，wayfinder #17）。
 #[tauri::command]
 pub fn source_errors() -> HashMap<String, serde_json::Value> {
-    mojuan_core::crawler::sources::all_errors()
+    mojuan_core::crawler::registry::all_errors()
         .into_iter()
         .map(|(source, (message, at))| (source, serde_json::json!({ "message": message, "at": at })))
         .collect()

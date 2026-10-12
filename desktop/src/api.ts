@@ -157,17 +157,26 @@ export interface SourceError {
     at: number;
 }
 
-/** 内置源：清单顺序即注册表顺序，附带脚本与图片热链对。 */
-export interface BundledSource extends SourceFacts {
-    script: string;
+/** 同步载荷：源运行时（可选，缺省用内置）+ 有序的源文档列表（顺序即源清单顺序）。 */
+export interface SyncPayload {
+    runtime?: string;
+    sources: { id: string; document: string }[];
 }
 
-/** 内置源清单（debug 从磁盘读脚本，release 内置打包）。 */
-export const bundledSources = (): Promise<BundledSource[]> => invoke("bundled_sources");
+/** 同步结果：被接受的源的前端事实，与被拒绝的源及原因（坏文档保留已装版本）。 */
+export interface SyncResult {
+    sources: SourceFacts[];
+    rejected: { id: string; reason: string }[];
+}
 
-/** 把 sources.json 的脚本同步进 Rust registry（启动/更新后调用）。 */
-export const syncSources = (entries: Record<string, string>) =>
-    invoke("sync_sources", { entries });
+/** 把已装源（源运行时 + 各源文档）同步进 Rust 注册表（启动/安装/更新后调用）。 */
+export const syncSources = (payload: SyncPayload): Promise<SyncResult> =>
+    invoke<string>("sync_sources", { payload: JSON.stringify(payload) }).then(
+        (json) => JSON.parse(json) as SyncResult,
+    );
+
+/** 源文档的 JSON Schema（源管理页的手动导入说明与编辑器补全用）。 */
+export const sourceSchema = (): Promise<string> => invoke("source_schema");
 
 /** 各源最近错误：{source: {message, at}}。 */
 export const sourceErrors = (): Promise<Record<string, SourceError>> => invoke("source_errors");

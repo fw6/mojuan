@@ -1,5 +1,5 @@
 /** 漫画源的前端事实：清单（显示名）与按源声明的图片热链对。
- * 全部来自 Rust 侧的源注册表（`bundled_sources`），启动同步源之后填充一次。 */
+ * 全部来自 Rust 侧的源注册表（`sync_sources` 的返回值），启动同步源之后填充一次。 */
 
 /** 已接入的漫画源（顺序 = 源注册表的注册顺序，首个为默认源）。 */
 export interface SourceEntry {
@@ -29,16 +29,14 @@ const HOTLINK_REFERERS: HotlinkReferer[] = [];
 /** 按源记的热链对（下载时取该源的 Referer）。 */
 const BY_SOURCE = new Map<string, HotlinkReferer[]>();
 
-/** 用源注册表填充清单与热链对；显示名优先取已装源的 `name`（源仓库可改名）。 */
-export function applyBundledSources(
-    bundled: SourceFacts[],
-    installed: Record<string, { name: string }>,
-): void {
+/** 用已装源的清单填充显示名与热链对（顺序 = 同步时传入的顺序，内置的 webtoons 排最前）。
+ * 显示名取自源文档本身的 title（Rust 侧解析后给出）。 */
+export function applySources(facts: SourceFacts[]): void {
     SOURCES.length = 0;
     HOTLINK_REFERERS.length = 0;
     BY_SOURCE.clear();
-    for (const s of bundled) {
-        SOURCES.push({ id: s.id, title: installed[s.id]?.name ?? s.title });
+    for (const s of facts) {
+        SOURCES.push({ id: s.id, title: s.title });
         BY_SOURCE.set(s.id, s.hotlinkReferers);
         HOTLINK_REFERERS.push(...s.hotlinkReferers);
     }

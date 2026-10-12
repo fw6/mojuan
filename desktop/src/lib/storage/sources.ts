@@ -1,15 +1,27 @@
-import { bundledSources, crawl, syncSources } from "../../api";
-import { applyBundledSources } from "../sources";
+import { crawl, syncSources } from "../../api";
+import { applySources } from "../sources";
 import { FILES, getStore } from "./store";
 
-/** 已装源（wayfinder #16：sources.json 域，key = sourceId）。 */
+/** 已装源（sources.json 域，key = sourceId）。 */
 export interface SourceEntry {
     sourceId: string;
-    name: string;
-    /** 递增整数版本（#16 Q7），与源仓库 index 对比决定更新。 */
+    /** 递增整数版本，与源仓库索引对比决定更新。 */
+    version: number;
+    /** 源文档（JSON 原文；由 Rust 侧校验后装载）。 */
+    document: string;
+    updatedAt: number;
+}
+
+/** 源运行时（源仓库索引里带的一份共享解释器；未装过时用 app 内置的）。 */
+export interface RuntimeEntry {
     version: number;
     script: string;
-    updatedAt: number;
+}
+
+/** 安装顺序（内置的 webtoons 由 Rust 侧恒排在最前，这里只记用户装的源）。 */
+export async function getOrder(): Promise<string[]> {
+    const store = await getStore(FILES.sources);
+    return (await store.get<string[]>("order")) ?? [];
 }
 
 export async function getSources(): Promise<Record<string, SourceEntry>> {
@@ -17,75 +29,113 @@ export async function getSources(): Promise<Record<string, SourceEntry>> {
     return (await store.get<Record<string, SourceEntry>>("sources")) ?? {};
 }
 
-export async function setSources(entries: Record<string, SourceEntry>): Promise<void> {
+export async function getRuntime(): Promise<RuntimeEntry | null> {
     const store = await getStore(FILES.sources);
-    await store.set("sources", entries);
+    return (await store.get<RuntimeEntry>("runtime")) ?? null;
+}
+
+/** 装/更新一个源：写进存储并追加安装顺序（已装过则保持原位置）。 */
+export async function putSource(entry: SourceEntry): Promise<void> {
+    const store = await getStore(FILES.sources);
+    const sources = await getSources();
+    sources[entry.sourceId] = entry;
+    await store.set("sources", sources);
+    const order = await getOrder();
+    if (!order.includes(entry.sourceId)) {
+        order.push(entry.sourceId);
+        await store.set("order", order);
+    }
+}
+
+/** 卸载一个源（内置的 webtoons 不可卸载，由调用方拦住）。 */
+export async function removeSource(sourceId: string): Promise<void> {
+    const store = await getStore(FILES.sources);
+    const sources = await getSources();
+    delete sources[sourceId];
+    await store.set("sources", sources);
+    const order = (await getOrder()).filter((id) => id !== sourceId);
+    await store.set("order", order);
+}
+
+export async function putRuntime(entry: RuntimeEntry): Promise<void> {
+    const store = await getStore(FILES.sources);
+    await store.set("runtime", entry);
+}
+
+/** 丢掉没有文档的安装记录：旧模型的 `sources.json` 里只有 `script`，读出来的 `document` 是空的，
+ * 这些条目装载不了、也不该出现在源清单里。返回清干净的那份（顺序表同步去掉这些 id）。 */
+async function pruneEmptySources(): Promise<Record<string, SourceEntry>> {
+    const sources = await getSources();
+    const kept: Record<string, SourceEntry> = {};
+    let dropped = false;
+    for (const [id, entry] of Object.entries(sources)) {
+        if (typeof entry?.document === "string" && entry.document.trim() !== "") {
+            kept[id] = entry;
+        } else {
+            dropped = true;
+        }
+    }
+    if (!dropped) return kept;
+    const store = await getStore(FILES.sources);
+    await store.set("sources", kept);
+    await store.set(
+        "order",
+        (await getOrder()).filter((id) => kept[id]),
+    );
+    return kept;
 }
 
 /**
- * 启动时同步源脚本：sources.json 缺失时用内置源初始化（#16 Q8：首启种子）；
- * 老安装合并新增的内置源（#32：避免缺新内置源需手动清 sources.json）；
- * dev 模式每次覆盖（#17 开发回路：改脚本重启即生效）。随后把脚本同步进 Rust registry，
- * 并用内置源清单填充前端的源列表与热链对（显示名取已装源的 name）。
+ * 把已装源同步进 Rust 注册表，并用返回的源事实填充前端清单与热链对。
+ * 返回被拒绝的源及原因（坏文档保留已装版本，前端据此提示）。
  */
-export async function initSources(): Promise<void> {
-    const dev = import.meta.env.DEV;
-    const existing = await getSources();
-    const missing = Object.keys(existing).length === 0;
-    const bundled = await bundledSources();
-    if (missing || dev) {
-        const now = Date.now();
-        const next: Record<string, SourceEntry> = {};
-        for (const s of bundled) {
-            next[s.id] = {
-                sourceId: s.id,
-                name: s.title,
-                version: 1,
-                script: s.script,
-                updatedAt: now,
-            };
-        }
-        await setSources(next);
-    } else {
-        // 老安装：把内置源里缺失的新源合并进来（不覆盖已装版本）。
-        const now = Date.now();
-        let changed = false;
-        const merged: Record<string, SourceEntry> = { ...existing };
-        for (const s of bundled) {
-            if (!merged[s.id]) {
-                merged[s.id] = {
-                    sourceId: s.id,
-                    name: s.title,
-                    version: 1,
-                    script: s.script,
-                    updatedAt: now,
-                };
-                changed = true;
-            }
-        }
-        if (changed) await setSources(merged);
+export async function syncInstalled(): Promise<{ id: string; reason: string }[]> {
+    const installed = await pruneEmptySources();
+    const order = await getOrder();
+    const runtime = await getRuntime();
+    const ids = order.filter((id) => installed[id]);
+    // 存储里有但顺序表漏掉的（异常数据）也一并带上，避免装了的源不生效
+    for (const id of Object.keys(installed)) {
+        if (!ids.includes(id)) ids.push(id);
     }
-    const current = await getSources();
-    const scripts: Record<string, string> = {};
-    for (const [id, entry] of Object.entries(current)) scripts[id] = entry.script;
-    await syncSources(scripts);
-    applyBundledSources(bundled, current);
+    const result = await syncSources({
+        runtime: runtime?.script,
+        sources: ids.map((id) => ({ id, document: installed[id].document })),
+    });
+    applySources(result.sources);
+    return result.rejected;
 }
 
-/** 源脚本同步的单例：首次调用执行，后续调用等待同一个 Promise。
- * 页面取数前 await 它——脚本尚未进入 registry 时，脚本源的 op 会按空结果返回。 */
-let sourcesReady: Promise<void> | null = null;
+/** 源同步的单例：首次调用执行，后续调用等待同一个 Promise。
+ * 页面取数前 await whenSourcesReady()——源尚未进入注册表时，该源的 op 会按空结果返回。 */
+let pending: Promise<{ id: string; reason: string }[]> | null = null;
+
+/** 执行一次同步（已同步过则复用结果）。返回被拒绝的源及原因。 */
+export function syncNow(): Promise<{ id: string; reason: string }[]> {
+    pending ??= syncInstalled().catch((err) => {
+        console.error("源同步失败", err);
+        return [];
+    });
+    return pending;
+}
 
 export function whenSourcesReady(): Promise<void> {
-    sourcesReady ??= initSources().catch((err) => {
-        console.error("源脚本同步失败", err);
+    return syncNow().then((rejected) => {
+        for (const r of rejected) {
+            console.error(`源 ${r.id} 未装载：${r.reason}`);
+        }
     });
-    return sourcesReady;
 }
 
-// ---------- 源进程内缓存的持久化（cache_dump / cache_hydrate，grilling #6 存储域） ----------
+/** 安装/更新/卸载源之后重新同步（返回被拒绝的源及原因）。 */
+export function resyncSources(): Promise<{ id: string; reason: string }[]> {
+    pending = null;
+    return syncNow();
+}
 
-/** 启动时把上次保存的各源进程内缓存回灌进 Rust。没有持久缓存的源 hydrate 是空操作。 */
+// ---------- 源进程内缓存的持久化（cache_dump / cache_hydrate） ----------
+
+/** 启动时把上次保存的各源缓存回灌进 Rust。没有持久缓存的源 hydrate 是空操作。 */
 export async function hydrateSourceCaches(): Promise<void> {
     const store = await getStore(FILES.sourceCache);
     const all = (await store.get<Record<string, unknown>>("caches")) ?? {};

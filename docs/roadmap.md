@@ -5,14 +5,16 @@ wayfinder 地图「从 Lynx 迁移到 Tauri」(#2) 已关闭，桌面 v1 功能�
 
 ## 源运行时系统（v1 后首个里程碑，grilling #11 定）
 
-> 本里程碑的 wayfinder 地图（[wayfinder: 源运行时系统（JS 源脚本 + rquickjs + 远程源仓库）](https://github.com/fw6/mojuan/issues/12)）已于 2026-08-15 定案关闭并**实现落地**：webtoons/mangadex 迁为首批源脚本（`desktop/crates/mojuan-core/src/js/sources/`，rquickjs 0.12.2 执行）、crawl 接线（buildUrl → Rust 抓取 → parse）、Settings 源管理（检查更新/sha256 校验/应用）、Sources 错误行、公开源仓库 [fw6/mojuan-sources](https://github.com/fw6/mojuan-sources)（`sources.json` v1）上线。加源 = 提交一份脚本到源仓库。
+> 本里程碑的 wayfinder 地图（[wayfinder: 源运行时系统](https://github.com/fw6/mojuan/issues/12)）已于 2026-08-15 定案关闭：源解析迁出 Rust、由运行时解释、经公开源仓库 [fw6/cimoc-sources](https://github.com/fw6/cimoc-sources)（`sources.json`）分发，crawl 接线（buildUrl → Rust 抓取 → parse）、Settings 源管理（检查更新/sha256 校验/应用）、Sources 错误行。
+>
+> **源的定义方式改过**（2026-10-12，[ADR-0002](adr/0002-source-definition-as-document.md)）：源 = 一份 JSON **源文档**，由一份共享的**源运行时**解释，运行时随源仓库分发并可远程更新；HTML 求值经纯计算的宿主绑定 `__host.select` 调用 app 侧已有的 `scraper`；需要真正算法的 op 用文档内嵌的 `script` 钩子。内置源只保留 webtoons 一个（格式的参考实现、首启可用的保证、默认源、可更新不可卸载），其余源由用户从源目录安装或手动导入。加源 = 提交一份文档到源仓库。
 
-- 源 = 运行时加载的 JS 脚本，在 Rust 核心的 rquickjs（QuickJS）嵌入运行时执行；
+- 源 = 源文档（JSON），由源运行时在 Rust 核心的 rquickjs（QuickJS）沙箱里解释；
   网络/Referer/缓存/热链代理留在 Rust 原生层（webview fetch 设不了头，research #4）。
-- 远程源仓库分发：index JSON（源元数据 + 版本 + sha256 校验）、app 内手动检查更新；
+- 远程源仓库分发：一份源运行时 + 每源一份文档 + 版本 + sha256 校验、app 内手动检查更新；
   签名体系后置（社区化时再上）。
-- webtoons / mangadex 迁为首批源脚本，逐源删除 Rust 解析（op 协议不变，fixture 复用，测试走 vitest）。
-- 期间加源 = 发版（接受的暂时窗口）。
+- 文档由 Rust 侧类型化结构体校验，`schemars` 生成 JSON Schema 供编辑器补全与仓库提交时检查。
+- 测试面是 (fixture, 文档, 期望) 三元组的共享驱动，加每源一条经真 QuickJS 的端到端。
 
 ## 离线阅读（已下载/本地漫画的阅读）
 

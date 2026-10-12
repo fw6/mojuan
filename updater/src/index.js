@@ -1,15 +1,20 @@
 /**
  * mojuan 更新通道（Cloudflare Worker）。
  *
- * 两个客户端从三个出口取东西：
+ * 两个客户端从四个出口取东西：
  *   GET /latest.json       桌面端 tauri-plugin-updater 的更新清单（没有可发布版本时回 204）
  *   GET /android.json      Android OTA 的清单：版本 + APK 的 sha256 + 下载地址（同上）
  *   GET /dl/<tag>/<文件名>  该版本制品的下载代理
+ *   GET /schema.json       源文档的 JSON Schema（编辑器补全与源仓库提交时校验用）
  *
  * 清单里 tauri-action 写的制品地址是 GitHub 的 API 资产地址，普通 GET 取回的是资产元数据
  * 而不是文件（GitHub 只在 Accept: octet-stream 时回字节），所以清单与制品都由这个 Worker
  * 取回、换成自己的地址后对外提供。
+ *
+ * schema.json 是随仓库入的产物（由 mojuan-core 的 Rust 结构体生成），不经 GitHub，也不需要凭据。
  */
+
+import schema from "./schema.json" with { type: "json" };
 
 const GITHUB_API = "https://api.github.com";
 const MANIFEST_ASSET = "latest.json";
@@ -27,8 +32,12 @@ export default {
         if (url.pathname === "/") {
             return text(
                 200,
-                "mojuan 更新通道：/latest.json 取桌面清单，/android.json 取 Android 清单，/dl/<tag>/<文件名> 取制品",
+                "mojuan 更新通道：/latest.json 取桌面清单，/android.json 取 Android 清单，/dl/<tag>/<文件名> 取制品，/schema.json 取源文档的 JSON Schema",
             );
+        }
+        // 源文档的 Schema 与更新无关，不需要 GITHUB_TOKEN
+        if (url.pathname === "/schema.json") {
+            return json(schema);
         }
         const isManifest = url.pathname === "/latest.json";
         const isAndroid = url.pathname === "/android.json";

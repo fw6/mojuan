@@ -31,7 +31,7 @@ vi.mock("../lib/storage/sources", () => ({
 import { crawl, crawlCached, sourceErrors } from "../api";
 import { getSettings, rememberDiscovery } from "../lib/storage/settings";
 import { persistSourceCache } from "../lib/storage/sources";
-import { applyBundledSources } from "../lib/sources";
+import { applySources } from "../lib/sources";
 
 const mockedCrawl = vi.mocked(crawl);
 const mockedCached = vi.mocked(crawlCached);
@@ -95,21 +95,18 @@ function renderSources() {
 beforeEach(() => {
     vi.clearAllMocks();
     setupCrawl();
-    // 源清单与热链对来自 Rust 侧注册表（真实启动由 initSources 填充）
-    applyBundledSources(
-        [
-            { id: "mangadex", title: "MangaDex", hotlinkReferers: [] },
-            { id: "webtoons", title: "Webtoons", hotlinkReferers: [] },
-            { id: "copymanga", title: "Copymanga", hotlinkReferers: [] },
-            { id: "dongman", title: "咚漫", hotlinkReferers: [] },
-            { id: "manhuagui", title: "漫画柜", hotlinkReferers: [] },
-            { id: "baozimh", title: "包子漫画", hotlinkReferers: [] },
-            { id: "nnhanman", title: "鸟鸟韩漫", hotlinkReferers: [] },
-            { id: "kxmanhua", title: "开心看漫画", hotlinkReferers: [] },
-            { id: "hentara", title: "Hentara", hotlinkReferers: [] },
-        ],
-        {},
-    );
+    // 源清单与热链对来自源文档（真实启动由源同步填充）
+    applySources([
+        { id: "mangadex", title: "MangaDex", hotlinkReferers: [] },
+        { id: "webtoons", title: "Webtoons", hotlinkReferers: [] },
+        { id: "copymanga", title: "Copymanga", hotlinkReferers: [] },
+        { id: "dongman", title: "咚漫", hotlinkReferers: [] },
+        { id: "manhuagui", title: "漫画柜", hotlinkReferers: [] },
+        { id: "baozimh", title: "包子漫画", hotlinkReferers: [] },
+        { id: "nnhanman", title: "鸟鸟韩漫", hotlinkReferers: [] },
+        { id: "kxmanhua", title: "开心看漫画", hotlinkReferers: [] },
+        { id: "hentara", title: "Hentara", hotlinkReferers: [] },
+    ]);
     // 默认无缓存、无源错误：各用例走干净路径，需要的用例自行覆盖实现
     mockedCached.mockResolvedValue(null);
     mockedErrors.mockResolvedValue({});

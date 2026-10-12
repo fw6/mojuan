@@ -1,17 +1,17 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
     SOURCES,
-    applyBundledSources,
+    applySources,
     hotlinkRefererFor,
     sourceReferer,
     sourceTitle,
     type SourceFacts,
 } from "./sources";
 
-// 源清单与按源事实（显示名、图片热链对）由 Rust 侧注册表经 bundled_sources 提供，
-// initSources 就绪后填充一次。这里验证填充与两个查询。
+// 源清单与按源事实（显示名、图片热链对）由 Rust 侧解析源文档后给出，
+// 同步就绪后填充一次。这里验证填充与两个查询。
 
-const BUNDLED: SourceFacts[] = [
+const FACTS: SourceFacts[] = [
     { id: "mangadex", title: "MangaDex", hotlinkReferers: [] },
     {
         id: "webtoons",
@@ -28,23 +28,22 @@ const BUNDLED: SourceFacts[] = [
 ];
 
 beforeEach(() => {
-    applyBundledSources(BUNDLED, {});
+    applySources(FACTS);
 });
 
-describe("applyBundledSources", () => {
-    it("清单按注册表顺序填充", () => {
+describe("applySources", () => {
+    it("清单按同步顺序填充", () => {
         expect(SOURCES.map((s) => s.id)).toEqual(["mangadex", "webtoons", "dongman"]);
     });
 
-    it("显示名优先取已装源的 name（源仓库可改名）", () => {
-        applyBundledSources(BUNDLED, { webtoons: { name: "Webtoons 改名" } });
-        expect(sourceTitle("webtoons")).toBe("Webtoons 改名");
-        expect(sourceTitle("mangadex")).toBe("MangaDex");
+    it("显示名取自源文档的 title", () => {
+        expect(sourceTitle("webtoons")).toBe("Webtoons");
+        expect(sourceTitle("dongman")).toBe("咚漫");
     });
 
     it("重复填充重置清单，不累加", () => {
-        applyBundledSources(BUNDLED, {});
-        applyBundledSources(BUNDLED, {});
+        applySources(FACTS);
+        applySources(FACTS);
         expect(SOURCES).toHaveLength(3);
     });
 

@@ -60,31 +60,31 @@ fn run(app: &tauri::AppHandle, args: &[String]) -> i32 {
             }
         },
         [cmd, source, op, payload] if cmd == "crawl" => {
-            let Some(script) = load_script(source) else {
+            if !install_source(source) {
                 return 2;
-            };
+            }
             // 禁用结果缓存（空 cache_dir）：探针每次走真实链路
-            let out = mojuan_core::crawl(op, source, payload, &script, "");
+            let out = mojuan_core::crawl(op, source, payload, "");
             println!("{out}");
-            if let Some((msg, _)) = mojuan_core::crawler::sources::last_error(source) {
+            if let Some((msg, _)) = mojuan_core::crawler::registry::last_error(source) {
                 eprintln!("源错误: {msg}");
             }
             0
         }
         [cmd, source, comic_id, chapter_index] if cmd == "chain" => {
-            let Some(script) = load_script(source) else {
+            if !install_source(source) {
                 return 2;
-            };
+            }
             let payload = format!(r#"{{"comicId":"{comic_id}"}}"#);
-            let detail = mojuan_core::crawl("detail", source, &payload, &script, "");
-            if let Some((msg, _)) = mojuan_core::crawler::sources::last_error(source) {
+            let detail = mojuan_core::crawl("detail", source, &payload, "");
+            if let Some((msg, _)) = mojuan_core::crawler::registry::last_error(source) {
                 eprintln!("detail 源错误: {msg}");
                 return 1;
             }
             println!("detail: {}", summarize_detail(&detail));
             let payload = format!(r#"{{"comicId":"{comic_id}","chapterIndex":{chapter_index}}}"#);
-            let images = mojuan_core::crawl("images", source, &payload, &script, "");
-            if let Some((msg, _)) = mojuan_core::crawler::sources::last_error(source) {
+            let images = mojuan_core::crawl("images", source, &payload, "");
+            if let Some((msg, _)) = mojuan_core::crawler::registry::last_error(source) {
                 eprintln!("images 源错误: {msg}");
                 return 1;
             }
@@ -101,13 +101,27 @@ fn run(app: &tauri::AppHandle, args: &[String]) -> i32 {
     }
 }
 
-fn load_script(source: &str) -> Option<String> {
-    let script = mojuan_core::js::sources::load(source).unwrap_or_default();
-    if script.is_empty() {
-        eprintln!("源脚本不存在: {source}");
-        return None;
+/// 把该源的文档从仓库里装进注册表（探针不带前端，源由这里装）。
+fn install_source(source: &str) -> bool {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../crates/mojuan-core/src/js/sources")
+        .join(format!("{source}.json"));
+    let Ok(document) = std::fs::read_to_string(&path) else {
+        eprintln!("源文档不存在: {}", path.display());
+        return false;
+    };
+    let outcome = mojuan_core::crawler::registry::sync(mojuan_core::crawler::registry::SyncPayload {
+        runtime: None,
+        sources: vec![mojuan_core::crawler::registry::SyncSource {
+            id: source.to_string(),
+            document,
+        }],
+    });
+    if let Some((id, reason)) = outcome.rejected.into_iter().next() {
+        eprintln!("源文档校验失败 {id}: {reason}");
+        return false;
     }
-    Some(script)
+    true
 }
 
 /// detail 摘要：标题/章节数/首末章 + 隐藏字段 pageUrl 已被 post_process 剥离。

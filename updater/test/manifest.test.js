@@ -324,6 +324,29 @@ test("路径、方法与配置的边界", async () => {
     assert.match(await noToken.text(), /GITHUB_TOKEN/);
 });
 
+test("schema.json 直接给出源文档的 JSON Schema，不需要凭据", async () => {
+    // env 里故意不给 GITHUB_TOKEN：这个出口与更新通道无关
+    const res = await callWorker("/schema.json", { env: {} });
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type"), /application\/json/);
+    const schema = await res.json();
+    assert.equal(schema.title, "SourceDoc");
+    // 客户端与源仓库靠它校验文档：顶层字段、op 的字段、取值规则的两种写法都要在里面
+    for (const key of ["$schema", "schema", "id", "title", "ops", "renderChannel", "hotlinkReferers"]) {
+        assert.ok(schema.properties[key], `Schema 顶层应有 ${key}`);
+    }
+    const opSpec = schema.definitions.OpSpec;
+    for (const key of ["request", "items", "fields", "comic", "chapters", "hidden", "script"]) {
+        assert.ok(opSpec.properties[key], `OpSpec 应有 ${key}`);
+    }
+    assert.ok(schema.definitions.Extractor.anyOf, "取值规则应是 anyOf（简写与完整写法）");
+    // 仓库里那份 schema.json 必须与出口给出的一致
+    const committed = JSON.parse(
+        readFileSync(new URL("../src/schema.json", import.meta.url), "utf8"),
+    );
+    assert.deepEqual(schema, committed);
+});
+
 test("上游出错时不吞掉，回 502", async () => {
     const res = await callWorker("/latest.json", {
         routes: {

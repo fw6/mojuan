@@ -7,7 +7,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 import { invoke } from "@tauri-apps/api/core";
-import { applyBundledSources } from "./lib/sources";
+import { applySources } from "./lib/sources";
 import {
     crawl,
     crawlCached,
@@ -40,19 +40,16 @@ async function setProxyPort(port: number) {
 
 describe("imgSrc（→ 本机代理 /img；research #31 换代理）", () => {
     beforeEach(() => {
-        // 热链对由源注册表声明（真实启动由 initSources 填充）
-        applyBundledSources(
-            [
-                {
-                    id: "webtoons",
-                    title: "Webtoons",
-                    hotlinkReferers: [
-                        { domain: "pstatic.net", referer: "https://www.webtoons.com/" },
-                    ],
-                },
-            ],
-            {},
-        );
+        // 热链对由源文档声明（真实启动由源同步填充）
+        applySources([
+            {
+                id: "webtoons",
+                title: "Webtoons",
+                hotlinkReferers: [
+                    { domain: "pstatic.net", referer: "https://www.webtoons.com/" },
+                ],
+            },
+        ]);
     });
 
     it("端口就绪后把 pstatic.net 热链图重写为 http://127.0.0.1:<port>/img，带 url 与 ref 参数", async () => {

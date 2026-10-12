@@ -1,17 +1,23 @@
 # 更新通道（Cloudflare Worker）
 
-两个客户端共用的更新服务，部署在 `https://mojuan.fengw.site`。
+部署在 `https://mojuan.fengw.site`，给两个客户端与源文档作者用。
 
 - 桌面端 `tauri-plugin-updater` 的 `plugins.updater.endpoints` 指向 `/latest.json`。
 - Android 端（`src-tauri` 的 ota 模块）的 `plugins.mojuan-update.endpoint` 指向 `/android.json`。
+- 漫画源的文档（`fw6/cimoc-sources`）把 `$schema` 指向 `/schema.json`，编辑器据此补全与校验。
 
-## 三个出口
+## 四个出口
 
 | 路径 | 作用 |
 | --- | --- |
 | `GET /latest.json` | 桌面端最新已发布版本的更新清单；没有可发布版本时回 204 |
 | `GET /android.json` | Android 端的清单：版本 + APK 的 sha256 + APK 下载地址；同上回 204 |
 | `GET /dl/<tag>/<文件名>` | 该版本制品的下载代理，转发 `Range` |
+| `GET /schema.json` | 源文档的 JSON Schema（不经 GitHub，也不需要凭据） |
+
+`schema.json` 是随仓库入的产物，由应用的 Rust 结构体生成（见 `docs/agents/mojuan-core.md` 的
+「源文档与源运行时」）：改了文档格式就重新生成，拷到这里与源仓库的根目录，再部署。测试里有
+一条断言守着「出口给出的」与「仓库里那份」一致。
 
 `android.json` 的内容是 release 里的 `android.json` 资产（由 `release.yml` 的 Android 作业生成）：
 

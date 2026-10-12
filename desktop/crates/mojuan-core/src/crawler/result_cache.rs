@@ -1,11 +1,14 @@
 //! 抓取结果缓存（stale-while-revalidate 的 stale 一侧）：内存 LRU + 磁盘持久化。
 //!
-//! 缓存键 = (source, op, 规范化 payload, 脚本) 的 sha256；只缓存列表/详情类 op 的成功
-//! 结果（见 `is_cacheable`），失败结果不写入（接线在 `crawler::crawl`）。前端加载列表/
+//! 缓存键 = (source, op, 规范化 payload, 源文档, 运行时版本标识) 的 sha256；只缓存列表/详情类
+//! op 的成功结果（见 `is_cacheable`），失败结果不写入（接线在 `crawler::crawl`）。前端加载列表/
 //! 详情时先经 `crawl_cached` 命令渲染缓存、再调 `crawl` 拉最新并回写缓存。
+//! 运行时版本标识入键的理由：解释器的缺陷修正不改变任何文档的哈希，不入键的话按旧逻辑解析
+//! 出来的结果会继续被当成新结果用。
 //! 磁盘布局照 `cache.rs` 的图片缓存：`<cache_dir>/results/<sha256>.json`，内容
 //! `{"at": <unix_ms>, "data": "<结果 JSON 字符串>"}`（data 以字符串保存，读取原样返回）。
 
+use crate::js::runtime;
 use crate::util::{hex, now_ms, Lru};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -34,13 +37,13 @@ type Entry = (String, u64); // (结果 JSON, 抓取时刻)
 static LRU: LazyLock<Lru<String, Entry>> = LazyLock::new(|| Lru::new(LRU_CAP));
 
 /// 读缓存：内存 LRU → 磁盘。空 cache_dir 表示禁用缓存。
-/// script 为空（源脚本尚未同步进 registry）时同样禁用：缓存键含脚本，脚本未就绪时
+/// artifact 为空（源文档尚未同步进 registry）时同样禁用：缓存键含文档，未就绪时
 /// 写入的条目与就绪后的条目分列两个键，永远不会再次命中。
-pub fn get(cache_dir: &str, source: &str, op: &str, payload: &str, script: &str) -> Option<Entry> {
-    if cache_dir.is_empty() || script.is_empty() || !is_cacheable(op) {
+pub fn get(cache_dir: &str, source: &str, op: &str, payload: &str, artifact: &str) -> Option<Entry> {
+    if cache_dir.is_empty() || artifact.is_empty() || !is_cacheable(op) {
         return None;
     }
-    let key = cache_key(source, op, payload, script);
+    let key = cache_key(source, op, payload, artifact);
     if let Some(entry) = LRU.get(&key) {
         return Some(entry);
     }
@@ -60,12 +63,12 @@ pub fn get(cache_dir: &str, source: &str, op: &str, payload: &str, script: &str)
 }
 
 /// 写缓存（内存 + 磁盘）。磁盘写失败忽略：缓存是优化通道，下次抓取会重写。
-/// script 为空时不写入（同 `get` 的说明）。
-pub fn put(cache_dir: &str, source: &str, op: &str, payload: &str, script: &str, data: &str) {
-    if cache_dir.is_empty() || script.is_empty() || !is_cacheable(op) {
+/// artifact 为空时不写入（同 `get` 的说明）。
+pub fn put(cache_dir: &str, source: &str, op: &str, payload: &str, artifact: &str, data: &str) {
+    if cache_dir.is_empty() || artifact.is_empty() || !is_cacheable(op) {
         return;
     }
-    let key = cache_key(source, op, payload, script);
+    let key = cache_key(source, op, payload, artifact);
     let at = now_ms();
     LRU.put(key.clone(), (data.to_string(), at));
     let path = cache_path(cache_dir, &key);
@@ -106,8 +109,9 @@ pub fn prune(cache_dir: &str, max_age: Duration) {
     }
 }
 
-/// 缓存键：source / op / 规范化 payload / 脚本 的 sha256（脚本变化 = 旧条目不再命中）。
-fn cache_key(source: &str, op: &str, payload: &str, script: &str) -> String {
+/// 缓存键：source / op / 规范化 payload / 源文档 / 运行时版本标识 的 sha256
+/// （文档或运行时变化 = 旧条目不再命中）。
+fn cache_key(source: &str, op: &str, payload: &str, artifact: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(source.as_bytes());
     hasher.update([0]);
@@ -115,7 +119,9 @@ fn cache_key(source: &str, op: &str, payload: &str, script: &str) -> String {
     hasher.update([0]);
     hasher.update(normalize_payload(payload).as_bytes());
     hasher.update([0]);
-    hasher.update(script.as_bytes());
+    hasher.update(artifact.as_bytes());
+    hasher.update([0]);
+    hasher.update(runtime::fingerprint().as_bytes());
     hex(hasher.finalize().as_slice())
 }
 
@@ -190,8 +196,8 @@ mod tests {
     }
 
     #[test]
-    fn empty_script_disables_cache() {
-        let dir = temp_dir("noscript");
+    fn empty_artifact_disables_cache() {
+        let dir = temp_dir("noartifact");
         let d = dir.to_str().unwrap();
         put(d, "webtoons", "category", "{}", "", r#"["a"]"#);
         assert!(get(d, "webtoons", "category", "{}", "").is_none());
@@ -218,12 +224,30 @@ mod tests {
     }
 
     #[test]
-    fn script_change_invalidates() {
-        let dir = temp_dir("script");
+    fn artifact_change_invalidates() {
+        let dir = temp_dir("artifact");
         let d = dir.to_str().unwrap();
-        put(d, "webtoons", "category", "{}", "script-v1", r#"["a"]"#);
-        assert!(get(d, "webtoons", "category", "{}", "script-v2").is_none());
-        assert!(get(d, "webtoons", "category", "{}", "script-v1").is_some());
+        put(d, "webtoons", "category", "{}", "doc-v1", r#"["a"]"#);
+        assert!(get(d, "webtoons", "category", "{}", "doc-v2").is_none());
+        assert!(get(d, "webtoons", "category", "{}", "doc-v1").is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 运行时换版本：文档没变，旧结果也不能再命中（解释器改对了之后不该继续用旧解析结果）。
+    #[test]
+    fn runtime_change_invalidates() {
+        let _guard = crate::crawler::registry::test_lock();
+        let dir = temp_dir("runtime");
+        let d = dir.to_str().unwrap();
+        put(d, "webtoons", "category", "{}", "doc", r#"["a"]"#);
+        assert!(get(d, "webtoons", "category", "{}", "doc").is_some());
+        runtime::set(Some("function plan(){} function parse(){}".to_string()));
+        assert!(
+            get(d, "webtoons", "category", "{}", "doc").is_none(),
+            "换运行时后旧条目不应命中"
+        );
+        runtime::set(None);
+        assert!(get(d, "webtoons", "category", "{}", "doc").is_some());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -4,13 +4,14 @@
 
 ## 术语
 
-- **漫画源（source）**：提供漫画内容的站点（如 webtoons、mangadex、copymanga、dongman、manhuagui、baozimh、nnhanman、kxmanhua、hentara）。每个源 = 一个运行时加载的爬虫脚本模块（执行于 Rust 核心的嵌入 JS 运行时），定义 URL 构造与解析规则，以 sourceId 标识，经源仓库分发更新（grilling #11 定案）。
-- **源适配器（source adapter）**：一个源在 Rust 侧的全部知识，收在 `crawler/sources/` 的一个文件里：网络请求头、ctx 派生（交给脚本的缓存/网络派生值）、Rust 直连的 op、隐藏字段提取、是否走渲染通道、默认脚本、图片热链对、最近错误。以 sourceId 注册进注册表（顺序即前端源清单的显示顺序，首个为默认源）；新增一个源 = 加一个文件 + 在注册表里加一行。
+- **漫画源（source）**：提供漫画内容的站点（如 webtoons、mangadex、copymanga、dongman、manhuagui、baozimh、nnhanman、kxmanhua、hentara）。每个源 = 一份**源文档**，由**源运行时**解释，以 sourceId 标识，经源仓库分发更新（[ADR-0002](docs/adr/0002-source-definition-as-document.md) 定案）。
+- **源文档（source document）**：一个源的全部事实与取数规则，写成一份 JSON：URL 模板、静态分类表、HTML 选择器或 JSON 路径到字段的映射、章节排序去重、id 前缀、请求头、热链对、渲染通道标志、多步请求、隐藏字段；需要真正算法的 op 用内嵌 `script` 钩子（当前只有 manhuagui 的 packer 解包与 hentara 的本地搜索）。由 Rust 侧类型化结构体校验（`schemars` 由它生成 JSON Schema，供编辑器补全与源仓库提交时检查）；新增一个源 = 提交一份文档到源仓库。
+- **源运行时（source runtime）**：解释源文档的共享 JS，执行于 Rust 核心的 rquickjs 沙箱。入口与旧脚本契约同名（`buildUrl(op, payload, ctx)` / `parse(op, input, ctx)`），HTML 求值经纯计算的宿主绑定 `__host.select` 调用 app 侧已有的 `scraper`。随源仓库分发，app 内置一份默认副本并可远程更新——格式的表达力因此能随站点改版远程演进，不必等 app 发版。
 - **渲染源（render source）**：带 JS 挑战 / 客户端环境校验防护、普通 HTTP 客户端过不去的源（baozimh —— Cloudflare 防护；nnhanman —— 整站 TLS 连接被重置）。页面经**渲染通道（render channel）**取：宿主（桌面端 src-tauri）用不可见 webview 加载目标 URL，等验证自动完成后取回渲染好的 HTML，再走与普通源完全相同的 parse 契约；无 webview 宿主（core 测试）下渲染源返回「渲染通道未注册」。设计见 `docs/research/webview-render-channel.md`。
-- **源仓库（source repository）**：分发源脚本的公开远程索引——单一 index.json，每个源条目内嵌脚本源码 + 元数据 + 递增整数版本 + sha256 校验；app 内手动检查更新（版本对比、sha256 校验通过后原子替换已装源）。签名体系后置（grilling #16 定案）。
-- **已装源（installed source）**：app 内已安装、可用的源；内置源（webtoons/mangadex/copymanga/dongman/manhuagui/baozimh/nnhanman/kxmanhua/hentara）随 app 内置，版本独立于 app 版本，经源仓库手动更新。源管理入口在设置（列表 / 检查更新 / 应用更新；grilling #16 定案）。
-- **爬虫（crawl）**：按源规则抓取列表 / 详情 / 章节 / 图片的引擎。网络取数（文本/JSON/字节，带 Referer/UA）、磁盘缓存与热链图片代理驻留 Rust 核心（mojuan-core）；解析规则在源脚本中（v1 后按 grilling #11 迁移，v1 期间解析暂留 Rust）。
-- **结果缓存（result cache）**：列表 / 详情类抓取（categories / category / search / detail）成功结果的缓存——内存 LRU + 磁盘（`<appCacheDir>/results/`），键含源脚本哈希（源脚本更新即自然失效），失败结果不写入；前端加载先渲染缓存、再拉最新（stale-while-revalidate），新鲜窗口（2 分钟）内切换源 / 分类不发请求。图片地址（images）不缓存。
+- **源仓库（source repository）**：分发源文档与源运行时的公开远程索引（`fw6/cimoc-sources` 的 `sources.json`）——一份源运行时 + 每个源条目内嵌文档 + 元数据 + 递增整数版本 + sha256 校验；app 内手动检查更新（版本对比、sha256 校验通过后原子替换已装源），同一份索引也充当源目录供用户按需安装。签名体系后置（grilling #16 定案）。
+- **已装源（installed source）**：app 内已安装、可用的源。内置源只有 webtoons 一个——格式的参考实现与首启可用的保证，可被索引里版本更高的条目覆盖、不可卸载、为默认源；其余源由用户从源仓库目录安装或手动导入，按安装顺序追加，不提供手动排序。版本独立于 app 版本，经源仓库手动更新。源管理入口在设置（列表 / 目录 / 手动导入 / 检查更新 / 应用更新；grilling #16 定案）。
+- **爬虫（crawl）**：按源规则抓取列表 / 详情 / 章节 / 图片的引擎。网络取数（文本/JSON/字节，带 Referer/UA）、磁盘缓存与热链图片代理驻留 Rust 核心（mojuan-core）；解析规则在**源文档**中，由**源运行时**在 rquickjs 沙箱里执行。
+- **结果缓存（result cache）**：列表 / 详情类抓取（categories / category / search / detail）成功结果的缓存——内存 LRU + 磁盘（`<appCacheDir>/results/`），键含源文档与源运行时的版本标识（任一更新即自然失效），失败结果不写入；前端加载先渲染缓存、再拉最新（stale-while-revalidate），新鲜窗口（2 分钟）内切换源 / 分类不发请求。图片地址（images）不缓存。
 - **漫画（comic）**：一部作品，以（source, comicId）唯一标识。
 - **章节（chapter）**：漫画的一个话。源内以序号 chapterIndex 标识；同一作品的章节按章序排列。
 - **外链章节（external chapter）**：images 为空、内容托管在站外的章节（如 MangaDex 上指向 MangaPlus 的章节）。一律过滤：不出现在章节列表，也不进入「下一话」；只有外链章节的书显示空态。桌面 v1 不做跳浏览器等任何外链处理。

@@ -1,12 +1,41 @@
-//! 真网冒烟（wayfinder #17 双轨之外的手动验证）：默认忽略，`cargo test -- --ignored` 手动跑。
-//! 用真实网络验证脚本源全链路（buildUrl → 抓取 → parse → 输出非空）。
+//! 真网冒烟（手动验证）：默认忽略，`cargo test -- --ignored` 手动跑。
+//! 用真实网络验证源文档全链路（plan → 抓取 → parse → 输出非空）。
 //! CI 不跑：依赖外网站点，易受网络/反爬波动影响。
 
-use mojuan_core::js;
+use mojuan_core::crawler::registry::{self, SyncPayload, SyncSource};
+use std::path::{Path, PathBuf};
+
+/// 把仓库里的全部源文档同步进注册表（内置只有 webtoons，其余 8 个要从文档目录装载）。
+fn sync_all() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/js/sources");
+    let mut sources: Vec<SyncSource> = std::fs::read_dir(&dir)
+        .expect("源文档目录")
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p: &PathBuf| p.extension().and_then(|x| x.to_str()) == Some("json"))
+        .filter_map(|p| {
+            let id = p.file_stem()?.to_str()?.to_string();
+            Some(SyncSource {
+                id,
+                document: std::fs::read_to_string(&p).ok()?,
+            })
+        })
+        .collect();
+    sources.sort_by(|a, b| a.id.cmp(&b.id));
+    let outcome = registry::sync(SyncPayload {
+        runtime: None,
+        sources,
+    });
+    assert!(
+        outcome.rejected.is_empty(),
+        "源文档都应通过校验: {:?}",
+        outcome.rejected
+    );
+}
 
 fn live_crawl(source: &str, op: &str, payload: &str) -> serde_json::Value {
-    let script = js::sources::load(source).expect("内置脚本");
-    let out = mojuan_core::crawl(op, source, payload, &script, "");
+    sync_all();
+    let out = mojuan_core::crawl(op, source, payload, "");
     serde_json::from_str(&out).expect("输出应为合法 JSON")
 }
 
@@ -65,7 +94,7 @@ fn copymanga_live_detail_and_images() {
         .and_then(|c| c.as_array())
         .cloned()
         .unwrap_or_default();
-    let err = mojuan_core::crawler::sources::last_error("copymanga")
+    let err = mojuan_core::crawler::registry::last_error("copymanga")
         .map(|(m, _)| m)
         .unwrap_or_default();
     if chapters.is_empty() {
@@ -139,7 +168,7 @@ fn manhuagui_live_detail_and_images() {
         .and_then(|c| c.as_array())
         .cloned()
         .unwrap_or_default();
-    let err = mojuan_core::crawler::sources::last_error("manhuagui")
+    let err = mojuan_core::crawler::registry::last_error("manhuagui")
         .map(|(m, _)| m)
         .unwrap_or_default();
     if chapters.is_empty() {

@@ -54,11 +54,23 @@ Tauri v2 + React 19 + Vite 的前端。UI 由 Tailwind CSS v4 与 beui 组件构
 
 ## 源清单与按源事实（`src/lib/sources.ts`）
 
-源清单（`SOURCES`，顺序 = 源注册表的注册顺序，首个为默认源）与图片热链对都来自 Rust 侧的源注册表：`initSources`（`whenSourcesReady` 的实体）经 `bundled_sources` 取回后调 `applyBundledSources` 填充，显示名优先取已装源的 `name`（源仓库可改名）。前端不再按源硬编码任何东西——加源、改热链域名、改显示名都只改 `crawler/sources/` 的那个文件。
+源清单（`SOURCES`，顺序 = 同步时传入的顺序，内置的 webtoons 恒在最前）与图片热链对都来自 Rust 侧解析源文档后的结果：`syncInstalled()`（`whenSourcesReady` 的实体）经 `sync_sources` 命令把源运行时与各源文档交出去，再用返回的源事实调 `applySources` 填充。前端不按源硬编码任何东西——加源、改热链域名、改显示名都只改那份源文档（见 `docs/agents/mojuan-core.md` 的「源文档与源运行时」）。
 
 - 消费方（源面板、命令面板、`sourceTitle`）都排在 `whenSourcesReady()` 之后；就绪前 `SOURCES` 是空数组。
 - `api.ts` 的 `imgSrc(value, {source, comicId})` 经 `hotlinkRefererFor(url)` 按 URL 子串查热链对：热链域、带了 `source+comicId` 的阅读页、以及本地路径都重写为本机代理 `/img`，其余（列表封面）保持直连；`Detail.tsx` 的下载 Referer 取 `sourceReferer(source)`（该源声明的第一条）。
-- 源进程内缓存的持久化是通用协议：`cache_dump`/`cache_hydrate` 对任意源都可用，没有持久缓存的源 dump 出空对象。`persistSourceCache(source)` 由 `useCrawl` 在每次抓取成功后调用，`hydrateSourceCaches()` 在启动时回灌（存储域 `sources-cache.json`，按 sourceId 存）。
+- 源进程内缓存的持久化是通用协议：`cache_dump`/`cache_hydrate` 对任意已装源都可用，没有持久缓存的源 dump 出空对象。`persistSourceCache(source)` 由 `useCrawl` 在每次抓取成功后调用，`hydrateSourceCaches()` 在启动时回灌（存储域 `sources-cache.json`，按 sourceId 存）。
+
+## 源管理（设置页「漫画源」面板）
+
+源文档由源仓库目录分发，也可手动导入；面板给三件事：
+
+- **读取源目录**：拉 `REPO_INDEX_URL`（`fw6/cimoc-sources` 的 `sources.json`，形状是
+  `{runtime, sources: {id: {name, version, document, sha256}}}`），列出尚未安装的源供安装，并算出可更新的源。
+- **安装/更新**：先按 `sha256` 校验文档，再经 `putSource` 写进存储（`sources.json` 域的 `sources` 与
+  `order` 两个键）、`resyncSources()` 重新同步进 Rust 注册表；索引里的源运行时一并装（`runtime` 键）。
+- **手动导入**：粘贴一份源文档 JSON，写进已装源后重新同步；结构由 Rust 侧校验，坏文档不替换已装版本，
+  原因经 `resyncSources()` 的返回值呈现。
+- 内置的 webtoons 不可卸载（首启可用的保证）；其余源可卸载（`removeSource` + 重新同步）。
 
 ## 发现页的分类与搜索
 
@@ -70,7 +82,7 @@ beui registry 里没有可用于远程搜索的现成组件：`morphing-search` 
 
 ## 存储层（`src/lib/storage/`）
 
-按存储域一个文件：`store.ts` 是底层（桌面 store 插件与移动端 fs 的平台切换、每文件一个 Store 实例、跨域键规则 `comicKey`），`fs.ts` 是移动端实现（接口与 `@tauri-apps/plugin-store` 的 IStore 一致），上面是 `progress.ts`、`history.ts`、`favorites.ts`、`settings.ts`、`sources.ts`（已装源 + 源脚本同步单例 `whenSourcesReady` + 源进程内缓存的持久化）、`backup.ts`（WebDAV 备份/恢复，跨收藏、历史、进度三域读）。每个域一个 JSON 文件（`store.ts` 的 `FILES`），消费方按域直接导入，没有统一出口。
+按存储域一个文件：`store.ts` 是底层（桌面 store 插件与移动端 fs 的平台切换、每文件一个 Store 实例、跨域键规则 `comicKey`），`fs.ts` 是移动端实现（接口与 `@tauri-apps/plugin-store` 的 IStore 一致），上面是 `progress.ts`、`history.ts`、`favorites.ts`、`settings.ts`、`sources.ts`（已装源 + 安装顺序 + 源运行时 + 同步单例 `whenSourcesReady` + 源进程内缓存的持久化）、`backup.ts`（WebDAV 备份/恢复，跨收藏、历史、进度三域读）。每个域一个 JSON 文件（`store.ts` 的 `FILES`），消费方按域直接导入，没有统一出口。
 
 ## 数据加载与结果缓存（stale-while-revalidate）
 
@@ -79,14 +91,14 @@ beui registry 里没有可用于远程搜索的现成组件：`morphing-search` 
 新鲜窗口、空结果保留、错误呈现与源进程内缓存的回灌都收在这一个 module 里，页面只拿
 `{data, loading, stale, error, reload}`。它按顺序做三件事：
 
-- 先 `await whenSourcesReady()`（`lib/storage/sources.ts` 的源脚本同步单例，registry 未就绪时脚本源的
+- 先 `await whenSourcesReady()`（`lib/storage/sources.ts` 的源同步单例，registry 未就绪时该源的
   op 会返回空结果）；
 - 再 `crawlCached(op, source, payload)` 读缓存（不触发网络，未命中返回 `null`），有就立即渲染；
 - 最后 `crawl(op, source, payload)` 拉最新并覆盖，Rust 侧把成功结果写回缓存。
 
 策略由调用点用 `opts` 声明：`maxAge` 是新鲜窗口，窗口内的缓存直接收工、不发请求（发现页的列表传
-2 分钟，来回切源不重复拉取；分类与详情传 0，每次都拉最新——渲染源的章节中转链依赖 detail 的
-post_process 写入进程内缓存，baozimh 的 images 依赖它）；`enabled` 为 false 时不发请求。请求键是
+2 分钟，来回切源不重复拉取；分类与详情传 0，每次都拉最新——渲染源的章节中转链靠 detail 解析时交出的
+隐藏值写入该源缓存，baozimh 的 images 依赖它）；`enabled` 为 false 时不发请求。请求键是
 `op` + `source` + 序列化后的 payload，键变了才重新取：缓存命中直接替换，未命中清空 `data`、由页面
 显示自己的加载态。
 

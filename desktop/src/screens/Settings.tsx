@@ -21,11 +21,11 @@ import {
     setSettings,
     type Settings as SettingsT,
 } from "../lib/storage/settings";
-import { getSources, setSources, type SourceEntry } from "../lib/storage/sources";
+import { getOrder, getSources, putRuntime, putSource, removeSource, resyncSources, type SourceEntry } from "../lib/storage/sources";
+import { SOURCES, sourceTitle } from "../lib/sources";
 import { useTheme } from "../lib/theme";
 import { errorFirstLine } from "../lib/errors";
 import {
-    syncSources,
     sourceErrors,
     setImgProxyDownloadDir,
     webdavGet,
@@ -67,16 +67,34 @@ const IS_ANDROID = navigator.userAgent.includes("Android");
 /** 没有应用内更新通道的平台：macOS 与 iOS 都只能手动装新版。 */
 const NO_INAPP_UPDATE = IS_MACOS || IS_IOS;
 
-/** 源仓库 index（wayfinder #16：公开单一 JSON，每源条目含内嵌脚本 + 整数版本 + sha256）。 */
+/** 源仓库索引：一份源运行时 + 各源文档（每份带整数版本与 sha256）。
+ * 目录与更新走同一份索引；手动导入的源不经索引。 */
 const REPO_INDEX_URL =
-    "https://raw.githubusercontent.com/fw6/mojuan-sources/main/sources.json";
+    "https://raw.githubusercontent.com/fw6/cimoc-sources/main/sources.json";
 
+/** 索引里的一个源条目。 */
 interface RepoEntry {
     name: string;
+    version: number;
+    /** 源文档（JSON 原文）。 */
+    document: string;
+    sha256: string;
+}
+
+/** 索引里的源运行时条目（可选：没有就继续用 app 内置的那份）。 */
+interface RepoRuntime {
     version: number;
     script: string;
     sha256: string;
 }
+
+interface RepoIndex {
+    runtime?: RepoRuntime;
+    sources: Record<string, RepoEntry>;
+}
+
+/** 内置源：随 app 打包，不可卸载（首启可用的保证）。 */
+const BUILTIN_SOURCES = ["webtoons"];
 
 async function sha256Hex(s: string): Promise<string> {
     const data = new TextEncoder().encode(s);
@@ -90,12 +108,14 @@ export default function Settings() {
     const { isDark, setDark } = useTheme();
     const [settings, setSettingsState] = useState<SettingsT | null>(null);
     const [version, setVersion] = useState("");
-    // 源区（wayfinder #16/#17）
+    // 源区（ADR-0002：源文档 + 源运行时）
     const [sources, setSourcesState] = useState<Record<string, SourceEntry>>({});
+    const [order, setOrder] = useState<string[]>([]);
     const [errors, setErrors] = useState<Record<string, SourceError>>({});
     const [checking, setChecking] = useState(false);
     const [applying, setApplying] = useState(false);
-    const [updates, setUpdates] = useState<Record<string, RepoEntry>>({});
+    const [catalog, setCatalog] = useState<RepoIndex | null>(null);
+    const [importText, setImportText] = useState("");
     const [notice, setNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(
         null,
     );
@@ -134,12 +154,14 @@ export default function Settings() {
     }, []);
 
     async function refreshSources() {
-        const [srcs, errs] = await Promise.all([
+        const [srcs, errs, ord] = await Promise.all([
             getSources(),
             sourceErrors().catch(() => ({})),
+            getOrder(),
         ]);
         setSourcesState(srcs);
         setErrors(errs);
+        setOrder(ord);
     }
 
     async function pickDir() {
@@ -156,75 +178,158 @@ export default function Settings() {
         setSettingsState((s) => (s ? { ...s, autoTrim: trim } : s));
     }
 
-    // ---------- 源更新（手动检查，wayfinder #16） ----------
+    // ---------- 源管理（ADR-0002：源文档由源仓库分发，也可手动导入） ----------
 
-    async function checkUpdates() {
+    /** 拉源仓库索引（目录与更新共用一份）。 */
+    async function loadCatalog() {
         setChecking(true);
         setNotice(null);
         try {
             const resp = await fetch(REPO_INDEX_URL);
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            const index = (await resp.json()) as Record<string, RepoEntry>;
+            const index = (await resp.json()) as RepoIndex;
+            setCatalog(index);
             const installed = await getSources();
-            const found: Record<string, RepoEntry> = {};
-            for (const [id, entry] of Object.entries(installed)) {
-                const repo = index[id];
-                if (repo && repo.version > entry.version) found[id] = repo;
-            }
-            setUpdates(found);
-            setNotice(
-                Object.keys(found).length > 0
-                    ? {
-                          kind: "ok",
-                          text: `有 ${Object.keys(found).length} 个漫画源可以更新`,
-                      }
-                    : { kind: "ok", text: "已是最新版本" },
+            const updatable = Object.entries(index.sources ?? {}).filter(
+                ([id, repo]) => installed[id] && repo.version > installed[id].version,
             );
+            setNotice({
+                kind: "ok",
+                text: `源目录里有 ${Object.keys(index.sources ?? {}).length} 个源，${updatable.length} 个可更新`,
+            });
         } catch (e) {
-            setNotice({ kind: "err", text: `检查更新失败：${String(e)}` });
+            setNotice({ kind: "err", text: `读取源目录失败：${String(e)}` });
         } finally {
             setChecking(false);
         }
     }
 
-    async function applyUpdates() {
+    /** 索引里的运行时（有则一并装上；sha256 不符就继续用当前那份）。 */
+    async function installRuntime(index: RepoIndex) {
+        const repo = index.runtime;
+        if (!repo) return;
+        const hex = await sha256Hex(repo.script);
+        if (hex !== repo.sha256) {
+            throw new Error("源运行时的文件损坏（sha256 不符）");
+        }
+        await putRuntime({ version: repo.version, script: repo.script });
+    }
+
+    /** 装/更新一个源：先按 sha256 校验文档，再写入并重新同步。 */
+    async function installSource(id: string, repo: RepoEntry) {
         setApplying(true);
         setNotice(null);
         try {
+            const hex = await sha256Hex(repo.document);
+            if (hex !== repo.sha256) {
+                throw new Error(`${repo.name} 的文件损坏（sha256 不符）`);
+            }
+            await putSource({
+                sourceId: id,
+                version: repo.version,
+                document: repo.document,
+                updatedAt: Date.now(),
+            });
+            const rejected = await resyncSources();
+            await refreshSources();
+            if (rejected.length > 0) {
+                setNotice({ kind: "err", text: `${repo.name} 未装载：${rejected[0].reason}` });
+            } else {
+                setNotice({ kind: "ok", text: `已安装 ${repo.name} v${repo.version}` });
+            }
+        } catch (e) {
+            setNotice({ kind: "err", text: `安装失败：${String(e)}` });
+        } finally {
+            setApplying(false);
+        }
+    }
+
+    /** 目录里全部可更新的源一次装上（含索引里的运行时）。 */
+    async function applyUpdates() {
+        if (!catalog) return;
+        setApplying(true);
+        setNotice(null);
+        try {
+            await installRuntime(catalog);
             const installed = await getSources();
             let applied = 0;
             let failed = 0;
-            for (const [id, repo] of Object.entries(updates)) {
-                const hex = await sha256Hex(repo.script);
+            for (const [id, repo] of Object.entries(catalog.sources ?? {})) {
+                const cur = installed[id];
+                if (!cur || repo.version <= cur.version) continue;
+                const hex = await sha256Hex(repo.document);
                 if (hex !== repo.sha256) {
                     failed += 1;
                     continue; // sha 不符：拒绝替换，旧版本保留
                 }
-                installed[id] = {
+                await putSource({
                     sourceId: id,
-                    name: repo.name,
                     version: repo.version,
-                    script: repo.script,
+                    document: repo.document,
                     updatedAt: Date.now(),
-                };
+                });
                 applied += 1;
             }
-            await setSources(installed);
-            const scripts: Record<string, string> = {};
-            for (const [id, e] of Object.entries(installed)) scripts[id] = e.script;
-            await syncSources(scripts);
-            setUpdates({});
+            await resyncSources();
             await refreshSources();
             setNotice(
                 failed > 0
-                    ? {
-                          kind: "err",
-                          text: `已更新 ${applied} 个，${failed} 个文件损坏已跳过`,
-                      }
+                    ? { kind: "ok", text: `已更新 ${applied} 个，${failed} 个文件损坏已跳过` }
                     : { kind: "ok", text: `已更新 ${applied} 个漫画源` },
             );
         } catch (e) {
             setNotice({ kind: "err", text: `更新失败：${String(e)}` });
+        } finally {
+            setApplying(false);
+        }
+    }
+
+    /** 手动导入：把粘贴的源文档写进已装源（结构由 Rust 侧校验，坏文档不替换已装版本）。 */
+    async function importDocument() {
+        setApplying(true);
+        setNotice(null);
+        try {
+            const text = importText.trim();
+            if (!text) throw new Error("请先粘贴源文档");
+            const parsed = JSON.parse(text) as { id?: string; title?: string };
+            if (!parsed.id) throw new Error("源文档缺少 id");
+            await putSource({
+                sourceId: parsed.id,
+                version: 1,
+                document: text,
+                updatedAt: Date.now(),
+            });
+            const rejected = await resyncSources();
+            await refreshSources();
+            const bad = rejected.find((r) => r.id === parsed.id);
+            if (bad) {
+                setNotice({ kind: "err", text: `文档未通过校验：${bad.reason}` });
+            } else {
+                setImportText("");
+                setNotice({ kind: "ok", text: `已导入 ${parsed.title ?? parsed.id}` });
+            }
+        } catch (e) {
+            setNotice({ kind: "err", text: `导入失败：${String(e)}` });
+        } finally {
+            setApplying(false);
+        }
+    }
+
+    async function uninstallSource(id: string, title: string) {
+        const ok = await confirm(`卸载「${title}」？已下载的内容不受影响。`, {
+            title: "卸载漫画源",
+            kind: "warning",
+        });
+        if (!ok) return;
+        setApplying(true);
+        setNotice(null);
+        try {
+            await removeSource(id);
+            await resyncSources();
+            await refreshSources();
+            setNotice({ kind: "ok", text: `已卸载 ${title}` });
+        } catch (e) {
+            setNotice({ kind: "err", text: `卸载失败：${String(e)}` });
         } finally {
             setApplying(false);
         }
@@ -432,7 +537,31 @@ export default function Settings() {
         return <Loading label="正在加载设置" />;
     }
 
-    const sourceList = Object.values(sources);
+    /** 已装源清单：以 Rust 侧注册表的顺序为准（内置的排最前），挂上本地存储里的版本与时间。
+     * 顺序 = 内置 + 安装顺序；存储里多出来的（顺序表漏记）也一并列出。 */
+    const installedIds = SOURCES.map((s) => s.id);
+    for (const id of order) {
+        if (!installedIds.includes(id) && sources[id]) installedIds.push(id);
+    }
+    for (const id of Object.keys(sources)) {
+        if (!installedIds.includes(id)) installedIds.push(id);
+    }
+    const sourceList = installedIds.map((id) => ({
+        id,
+        title: sourceTitle(id),
+        entry: sources[id] ?? null,
+        builtin: BUILTIN_SOURCES.includes(id),
+    }));
+    /** 目录里可更新的源（已装且索引版本更高）。 */
+    const updatable = catalog
+        ? Object.entries(catalog.sources ?? {}).filter(
+              ([id, repo]) => sources[id] && repo.version > sources[id].version,
+          )
+        : [];
+    /** 目录里尚未安装的源。 */
+    const installable = catalog
+        ? Object.entries(catalog.sources ?? {}).filter(([id]) => !sources[id])
+        : [];
     const busy = backing || restoring;
 
     return (
@@ -647,48 +776,70 @@ export default function Settings() {
 
                 <Panel
                     title="漫画源"
-                    desc="各漫画源的版本，可手动更新"
+                    desc="源文档由源仓库分发，也可手动导入"
                     actions={<ScrollText className="size-4 text-muted-foreground" />}
                 >
-                    <SettingRow label="更新">
+                    <SettingRow label="源目录" hint="拉取源仓库索引，安装或更新源">
                         <Button
                             variant="secondary"
                             size="sm"
-                            onClick={() => void checkUpdates()}
+                            onClick={() => void loadCatalog()}
                             disabled={checking || applying}
                         >
                             <RefreshCw className="size-3.5" />
-                            {checking ? "检查中…" : "检查源更新"}
+                            {checking ? "读取中…" : "读取源目录"}
                         </Button>
-                        {Object.keys(updates).length > 0 && (
+                        {updatable.length > 0 && (
                             <Button
                                 variant="primary"
                                 size="sm"
                                 onClick={() => void applyUpdates()}
                                 disabled={applying}
                             >
-                                {applying
-                                    ? "更新中…"
-                                    : `全部更新（${Object.keys(updates).length}）`}
+                                {applying ? "更新中…" : `全部更新（${updatable.length}）`}
                             </Button>
                         )}
                     </SettingRow>
-                    {sourceList.map((entry) => {
-                        const err = errors[entry.sourceId];
-                        const status: AnimatedBadgeStatus = err
-                            ? "danger"
-                            : "neutral";
+                    {catalog && (
+                        <SettingRow
+                            label="可安装"
+                            hint={
+                                installable.length > 0
+                                    ? "源目录里尚未安装的源"
+                                    : "源目录里的源都已安装"
+                            }
+                        >
+                            <div className="flex flex-wrap justify-end gap-2">
+                                {installable.map(([id, repo]) => (
+                                    <Button
+                                        key={id}
+                                        variant="secondary"
+                                        size="sm"
+                                        onClick={() => void installSource(id, repo)}
+                                        disabled={applying}
+                                    >
+                                        {repo.name} v{repo.version}
+                                    </Button>
+                                ))}
+                            </div>
+                        </SettingRow>
+                    )}
+                    {sourceList.map(({ id, title, entry, builtin }) => {
+                        const err = errors[id];
+                        const status: AnimatedBadgeStatus = err ? "danger" : "neutral";
                         return (
                             <SettingRow
-                                key={entry.sourceId}
-                                label={entry.name}
+                                key={id}
+                                label={title}
                                 hint={
                                     err
                                         ? `上次出错：${errorFirstLine(err.message)}`
-                                        : new Date(entry.updatedAt).toLocaleString()
+                                        : entry
+                                          ? new Date(entry.updatedAt).toLocaleString()
+                                          : "随应用内置"
                                 }
                             >
-                                <Tag>v{entry.version}</Tag>
+                                <Tag>{entry ? `v${entry.version}` : "内置"}</Tag>
                                 <AnimatedBadge
                                     status={status}
                                     size="sm"
@@ -696,9 +847,40 @@ export default function Settings() {
                                 >
                                     {err ? "出错了" : "正常"}
                                 </AnimatedBadge>
+                                {!builtin && (
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => void uninstallSource(id, title)}
+                                        disabled={applying}
+                                    >
+                                        卸载
+                                    </Button>
+                                )}
                             </SettingRow>
                         );
                     })}
+                    <SettingRow label="手动导入" hint="粘贴一份源文档（JSON）后导入">
+                        <textarea
+                            value={importText}
+                            onChange={(e) => setImportText(e.target.value)}
+                            spellCheck={false}
+                            rows={4}
+                            placeholder='{ "schema": 1, "id": "mysite", "title": "我的漫画", ... }'
+                            className={cn(
+                                "min-h-20 w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs",
+                                "placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                            )}
+                        />
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => void importDocument()}
+                            disabled={applying || !importText.trim()}
+                        >
+                            导入
+                        </Button>
+                    </SettingRow>
                 </Panel>
 
                 <footer className="pb-2 text-center text-xs text-muted-foreground">
