@@ -140,6 +140,8 @@ Windows 与 Linux 用基座的 `mojuan`：deb / rpm 的包名直接取 productNa
 
 `tauri dev` 里 Dock 图标下方那行字取自**可执行文件**（未打包的进程在 LaunchServices 里就是文件名），所以 `src-tauri` 的 Cargo 包名是 `mojuan`，不是脚手架留下的 `desktop`；菜单栏那条仍是 productName（`mojuan`）。
 
+macOS 的制品文件名跟着 `productName` 走（`墨卷_1.6.3_aarch64.dmg`、`墨卷_1.6.3_aarch64.app.tar.gz`），而 **GitHub 会把 release 资产的 `name` 里非 ASCII 字符删掉**：`墨卷_1.6.3_aarch64.dmg` 上传后 `name` 变成 `_1.6.3_aarch64.dmg`，`label` 保留原名（发布页显示的是 label，所以页面上仍是「墨卷_…」），下载到本机的文件名则是 `name`。tauri-action 把同一个值同时当 `name` 与 `label` 用，要换成 ASCII 资产名得给它传 `releaseAssetNamePattern`。dmg 卷名与应用本体不受影响（卷名是 `墨卷`，里面是 `墨卷.app`）。
+
 ## 坑（Gotchas）
 
 1. **Tauri 同步命令在主线程执行**：阻塞式 reqwest 必须放 async 命令 + `tauri::async_runtime::spawn_blocking`，否则冻结 UI。
