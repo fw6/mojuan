@@ -1,5 +1,7 @@
 # 源脚本在 QuickJS/rquickjs 中的安全边界（wayfinder #11）
 
+> **路径说明**（2026-10-12 布局改动）：本文里的 `desktop/` 现为 `apps/mojuan/`，`desktop/crates/` 现为 `crates/`，`updater/` 现为 `apps/updater/`，`npm`/`npx` 换成 `pnpm`。
+
 背景：产品决策（wayfinder grilling #11）已定——漫画「源」迁为运行时加载的 JS 脚本，在 mojuan-core 里用 rquickjs（QuickJS）执行；脚本从远程源仓库分发（未签名、社区可投稿），只做解析（HTML/JSON → 结构化 JSON），网络/文件系统留在 Rust 原生层。本调研回答：不暴露任何宿主 API 时脚本能干什么、需要哪些资源限制、同类产品怎么做的、以及 v1 的默认安全基线。
 
 核心判断：**脚本跑在进程内、无任何宿主绑定时，残余攻击面只有「自 DoS」（CPU/内存/卡死），没有数据窃取与代码逃逸。用 rquickjs 自带的 memory limit + interrupt handler（墙钟超时）+ 栈上限 + 脚本体积检查四个旋钮即可封住 DoS，不需要子进程/虚拟机等重型沙箱。**

@@ -1,5 +1,7 @@
 # rquickjs 嵌入调研：把漫画源解析迁到运行时 JS 脚本（wayfinder #11）
 
+> **路径说明**（2026-10-12 布局改动）：本文里的 `desktop/` 现为 `apps/mojuan/`，`desktop/crates/` 现为 `crates/`，`updater/` 现为 `apps/updater/`，`npm`/`npx` 换成 `pnpm`。
+
 调研对象：rquickjs **0.12.2**（2026-07-27 发布，crates.io 最新稳定版；截至 2026-08-15）。绑定引擎为 **QuickJS-NG**（quickjs-ng.github.io/quickjs，bellard/quickjs 的 fork），由 rquickjs-sys 内置并打补丁（栈溢出检查、原子 `JS_NewClassID`、Infinity 处理等）。MSRV 为 Rust 1.87（Cargo.toml 声明）。API 事实均取自 docs.rs `rquickjs` / `rquickjs-core` 0.12.2 文档页、GitHub DelSkayn/rquickjs README、rquickjs 0.12.2 crate 源码，见文末 Sources。
 
 ## 结论与推荐（TL;DR）

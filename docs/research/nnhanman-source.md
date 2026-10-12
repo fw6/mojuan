@@ -1,5 +1,7 @@
 # 鸟鸟韩漫 nnhanman.xyz 源 — 实现状态与验证指南（2026-09-30，2026-10-12 改按源文档）
 
+> **路径说明**（2026-10-12 布局改动）：本文里的 `desktop/` 现为 `apps/mojuan/`，`desktop/crates/` 现为 `crates/`，`updater/` 现为 `apps/updater/`，`npm`/`npx` 换成 `pnpm`。
+
 ## 状态
 
 鸟鸟韩漫（繁体韩漫站）的解析规则是一份**源文档**：源仓库 `fw6/cimoc-sources` 的

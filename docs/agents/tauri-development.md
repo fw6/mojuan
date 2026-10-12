@@ -8,8 +8,8 @@
 
 ## 开发工作流
 
-- 改前端（`desktop/src/`）：`npm run tauri dev` 热更新。
-- 改 Rust 后端（`desktop/src-tauri/`）：改 Rust 触发后端重编，比前端慢。
+- 改前端（`apps/mojuan/src/`）：`pnpm dev` 热更新。
+- 改 Rust 后端（`apps/mojuan/src-tauri/`）：改 Rust 触发后端重编，比前端慢。
 
 ## 图片加载（热链域与已下载章节都走代理）
 
@@ -42,19 +42,19 @@
   连续两次干净 → 取 HTML」，不含任何站点选择器。
 - 布局细节、验证页识别、移动端离屏 webview 的取舍与维护注意见 `docs/research/webview-render-channel.md`。
 
-## 自动更新通道（`updater/`）
+## 自动更新通道（`apps/updater/`）
 
 - 桌面端用官方 tauri-plugin-updater；`plugins.updater.endpoints` 指向
-  `https://mojuan.fengw.site/latest.json`，服务是 `updater/` 里的 Cloudflare Worker。
-- 清单与制品都由 `updater/` 的 Cloudflare Worker 取回后对外提供：tauri-action 写进清单的制品
+  `https://mojuan.fengw.site/latest.json`，服务是 `apps/updater/` 里的 Cloudflare Worker。
+- 清单与制品都由 `apps/updater/` 的 Cloudflare Worker 取回后对外提供：tauri-action 写进清单的制品
   地址是 GitHub 的 API 资产地址（`api.github.com/repos/.../releases/assets/<id>`），普通 GET 取回
   的是资产元数据而不是文件，所以 Worker 换成自己的 `/dl` 路径、带上正确的请求头取回；只提供
   GitHub 判定的「最新已发布版本」。`release.yml` 直接发布（`releaseDraft: false`），workflow
   跑完即开始推送。
 - `*.workers.dev` 在本机所在网络连不上（实测 443 超时，而 Cloudflare 边缘 IP 与
   github.com 都通），所以 Worker 挂在自有域名的子域下，与 `blog.fengw.site` 同一做法。
-- 改了 `updater/src/` 或 `updater/wrangler.toml` 要 `cd updater && npx wrangler deploy`；
-  密钥、发布开关与撤掉步骤见 `updater/README.md`。
+- 改了 `apps/updater/src/` 或 `apps/updater/wrangler.toml` 要 `pnpm deploy`（在仓库根执行）；
+  密钥、发布开关与撤掉步骤见 `apps/updater/README.md`。
 
 ## Android OTA（应用内升级）
 
@@ -105,7 +105,7 @@
    （`apksigner sign --ks ~/.android/debug.keystore --ks-key-alias androiddebugkey`），
    放进通道目录。调试包有 240 MB 上下，下载会顶到探针超时，发布包只有 20 MB 左右。
 6. 驱动：`adb forward tcp:<主机口> tcp:9223`（注意方向：桥是**设备端**服务，用 forward；
-   本地通道是**主机端**服务，用 reverse），再用 `desktop/scripts/probe-app.mjs` 调 `ota_*`
+   本地通道是**主机端**服务，用 reverse），再用 `apps/mojuan/scripts/probe-app.mjs` 调 `ota_*`
    命令；界面路径直接在设置页点「检查新版本 → 下载 → 安装」。
 7. 系统确认界面用 `adb shell uiautomator dump` 取结构化文本找按钮（不要截图）；
    `adb shell dumpsys package io.github.fw6.mojuan | grep versionName` 核对版本是否变化。

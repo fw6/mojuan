@@ -1,10 +1,10 @@
-# 前端（desktop/src）
+# 前端（apps/mojuan/src）
 
 Tauri v2 + React 19 + Vite 的前端。UI 由 Tailwind CSS v4 与 beui 组件构成。
 
 ## 样式与设计系统
 
-- 设计令牌与全局基础样式：`desktop/src/styles/beui.css`（唯一的全局样式表，`main.tsx` 引入）。
+- 设计令牌与全局基础样式：`apps/mojuan/src/styles/beui.css`（唯一的全局样式表，`main.tsx` 引入）。
   - 语义化颜色令牌（`--background` / `--foreground` / `--card` / `--primary` / `--muted-foreground` / `--border` …）在 Tailwind v4 的 `@theme inline` 里映射成 `bg-card`、`text-muted-foreground` 这类工具类。
   - 浅色写在 `:root`，深色写在 `[data-theme="dark"]`；主题由 `src/lib/theme.tsx` 的 `applyTheme()` 写 `html[data-theme]`。深色变体用 `@custom-variant dark` 绑定到该属性，不跟随系统 `prefers-color-scheme`。
   - 玻璃表面用 `.glass` / `.glass-strong` / `.glass-thin` 三个工具类；滚动条、选区、焦点环、安全区内边距都在这里统一定义。
@@ -13,8 +13,8 @@ Tauri v2 + React 19 + Vite 的前端。UI 由 Tailwind CSS v4 与 beui 组件构
 
 ## beui 组件
 
-- 组件源码在 `desktop/src/components/beui/`，内部工具在 `desktop/src/lib/`（`utils.ts` 的 `cn`、`ease.ts` 的动效令牌、`hooks/`）。这些文件是上游源码的副本，`@/` 前缀指向 `src/`（vite.config.ts 的 alias + tsconfig paths）。
-- 更新或新增组件：编辑 `desktop/scripts/fetch-beui.mjs` 的 `FILES` 清单，然后 `node scripts/fetch-beui.mjs`。脚本按清单精确写入，不会带进用不到的兄弟文件。
+- 组件源码在 `apps/mojuan/src/components/beui/`，内部工具在 `apps/mojuan/src/lib/`（`utils.ts` 的 `cn`、`ease.ts` 的动效令牌、`hooks/`）。这些文件是上游源码的副本，`@/` 前缀指向 `src/`（vite.config.ts 的 alias + tsconfig paths）。
+- 更新或新增组件：编辑 `apps/mojuan/scripts/fetch-beui.mjs` 的 `FILES` 清单，然后 `node scripts/fetch-beui.mjs`。脚本按清单精确写入，不会带进用不到的兄弟文件。
   - 脚本会自动应用两处适配（写在 `PATCHES` 里）：`theme-toggle` 的 `next-themes` 换成 `lib/theme`；`button/base` 导出类名映射，供 `LinkButton` 复用按钮样式。**不要手工改这两处**，会被重跑覆盖。
   - 组件目录：<https://beui.dev/llms.txt>，registry 索引 `https://beui.dev/r`。
 - 应用自己的界面原语在 `src/components/ui.tsx`（封面、卡片、列表行、空状态、面板、进度条、`LinkButton`），页面直接组合这些与 beui 组件。
@@ -141,13 +141,13 @@ beui registry 里没有可用于远程搜索的现成组件：`morphing-search` 
 
 ## 验证桌面界面（不使用截图）
 
-应用内跑着 `tauri-plugin-mcp-bridge`（WebSocket 127.0.0.1:9223），可以用 `desktop/scripts/` 下的两个脚本在运行中的应用里读 DOM 与计算样式：
+应用内跑着 `tauri-plugin-mcp-bridge`（WebSocket 127.0.0.1:9223），可以用 `apps/mojuan/scripts/` 下的两个脚本在运行中的应用里读 DOM 与计算样式：
 
 ```bash
-npm run tauri dev                       # 另开一个终端
-node scripts/probe-app.mjs 'return document.body.innerText'
-node scripts/probe-app.mjs --resize 420x820   # 切到移动端宽度再读一遍
-node scripts/audit-contrast.mjs               # 逐路由扫文字对比度（深浅两套主题）
+pnpm dev                                     # 另开一个终端
+node apps/mojuan/scripts/probe-app.mjs 'return document.body.innerText'
+node apps/mojuan/scripts/probe-app.mjs --resize 420x820   # 切到移动端宽度再读一遍
+node apps/mojuan/scripts/audit-contrast.mjs               # 逐路由扫文字对比度（深浅两套主题）
 ```
 
 界面状态的判断走结构化文本（DOM、计算样式、可访问属性），不要用截图判断布局。改了配色或文字层级之后跑一次 `audit-contrast.mjs`。

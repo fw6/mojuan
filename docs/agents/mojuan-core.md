@@ -2,8 +2,8 @@
 
 ## 位置与职责
 
-- `desktop/crates/mojuan-core/` — 跨端共享的爬虫引擎与 WebDAV/下载/本地文件 IO/图片缓存（`cache::fetch_image`）。
-- `src-tauri` 经 tauri command 接线；核心本身无绑定层、不重写。
+- `crates/mojuan-core/` — 跨端共享的爬虫引擎与 WebDAV/下载/本地文件 IO/图片缓存（`cache::fetch_image`）。
+- `apps/mojuan/src-tauri` 经 tauri command 接线；核心本身无绑定层、不重写。
 - 跨模块共用的小工具在 `src/util.rs`：有界 LRU（图片缓存与抓取结果缓存共用同一个 `util::Lru`，容量由调用点传入）、`hex`、`now_ms`；下载目录布局（`<dir>/<source>/<comicId>`，扁平布局 `<dir>/<comicId>`）在 `src/native/paths.rs`。
 
 ## 源文档与源运行时（2026-10-12 起，ADR-0002）
@@ -104,4 +104,4 @@
 ## 开发工作流与测试
 
 - 改 Rust 核心：workspace 内直接编译，改完跑 `cargo test`（解析器有 fixture 测试）。
-- 源码：直接读 `desktop/crates/mojuan-core/src/`（js/crawler/native/cache 模块），API 为 `&str` → JSON 字符串。
+- 源码：直接读 `crates/mojuan-core/src/`（js/crawler/native/cache 模块），API 为 `&str` → JSON 字符串。

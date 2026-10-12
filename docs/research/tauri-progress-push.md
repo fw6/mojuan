@@ -1,5 +1,7 @@
 # 下载任务队列：Rust→前端实时进度推送方案调研（里程碑「下载任务队列」）
 
+> **路径说明**（2026-10-12 布局改动）：本文里的 `desktop/` 现为 `apps/mojuan/`，`desktop/crates/` 现为 `crates/`，`updater/` 现为 `apps/updater/`，`npm`/`npx` 换成 `pnpm`。
+
 背景：本仓库要把下载从 Reader 内联逐页串行升级为 **Rust 侧常驻任务队列 + 前端实时进度**。本调研基于 Tauri v2 官方一手资料（[tauri.app/llms.txt](https://tauri.app/llms.txt) 入口 + 相关 guide/API 页 + 本地 cargo registry 内 tauri **2.11.5** 源码，`@tauri-apps/api` **2.11.1**），回答三个问题：推送通道怎么选、Rust 常驻 worker 怎么写、与 AGENTS.md 坑 #1 怎么核对。所有论断均标注来源 URL（或本仓库/registry 源码路径）。
 
 ---

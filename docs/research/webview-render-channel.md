@@ -1,5 +1,7 @@
 # 隐藏 webview 渲染通道（Cloudflare / 自建验证防护源，2026-09-30）
 
+> **路径说明**（2026-10-12 布局改动）：本文里的 `desktop/` 现为 `apps/mojuan/`，`desktop/crates/` 现为 `crates/`，`updater/` 现为 `apps/updater/`，`npm`/`npx` 换成 `pnpm`。
+
 背景：包子漫画（baozimh）在 2026-08 的加源调研里被放弃——`cn.baozimh.com` 的 search/classify/详情
 301 到 `tw.baozimh.com`，普通 HTTP 客户端过不了验证页。本次为这类「JS 挑战 / 客户端环境校验」
 防护源新增**隐藏 webview 渲染通道**：不可见 webview 加载目标 URL，等验证自动完成、页面渲染好后

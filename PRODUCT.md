@@ -42,7 +42,7 @@ adaptive
 
 - 产品名 墨卷，署名 "Created by Deerflow"。
 - 界面语言为中文。
-- 应用图标是一张水墨侧脸（江南女子的形态：柳叶眉、低垂的杏眼、挽起的髻），通体只有墨与纸；源文件 `desktop/src-tauri/icons/app-icon.svg`，规范见 `DESIGN.md` 的「App Icon」。
+- 应用图标是一张水墨侧脸（江南女子的形态：柳叶眉、低垂的杏眼、挽起的髻），通体只有墨与纸；源文件 `apps/mojuan/src-tauri/icons/app-icon.svg`，规范见 `DESIGN.md` 的「App Icon」。
 
 ## Evidence on Hand
 
