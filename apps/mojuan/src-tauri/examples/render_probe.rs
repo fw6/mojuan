@@ -104,7 +104,7 @@ fn run(app: &tauri::AppHandle, args: &[String]) -> i32 {
 /// 把该源的文档从仓库里装进注册表（探针不带前端，源由这里装）。
 fn install_source(source: &str) -> bool {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../crates/mojuan-core/src/js/sources")
+        .join("../../../crates/mojuan-core/src/js/sources")
         .join(format!("{source}.json"));
     let Ok(document) = std::fs::read_to_string(&path) else {
         eprintln!("源文档不存在: {}", path.display());
