@@ -57,7 +57,7 @@ Tauri v2 + React 19 + Vite 的前端。UI 由 Tailwind CSS v4 与 beui 组件构
 源清单（`SOURCES`，顺序 = 源注册表的注册顺序，首个为默认源）与图片热链对都来自 Rust 侧的源注册表：`initSources`（`whenSourcesReady` 的实体）经 `bundled_sources` 取回后调 `applyBundledSources` 填充，显示名优先取已装源的 `name`（源仓库可改名）。前端不再按源硬编码任何东西——加源、改热链域名、改显示名都只改 `crawler/sources/` 的那个文件。
 
 - 消费方（源面板、命令面板、`sourceTitle`）都排在 `whenSourcesReady()` 之后；就绪前 `SOURCES` 是空数组。
-- `api.ts` 的 `imgSrc` 经 `hotlinkRefererFor(url)` 按 URL 子串查热链对（命中才重写为本机代理）；`Detail.tsx` 的下载 Referer 取 `sourceReferer(source)`（该源声明的第一条）。
+- `api.ts` 的 `imgSrc(value, {source, comicId})` 经 `hotlinkRefererFor(url)` 按 URL 子串查热链对：热链域、带了 `source+comicId` 的阅读页、以及本地路径都重写为本机代理 `/img`，其余（列表封面）保持直连；`Detail.tsx` 的下载 Referer 取 `sourceReferer(source)`（该源声明的第一条）。
 - 源进程内缓存的持久化是通用协议：`cache_dump`/`cache_hydrate` 对任意源都可用，没有持久缓存的源 dump 出空对象。`persistSourceCache(source)` 由 `useCrawl` 在每次抓取成功后调用，`hydrateSourceCaches()` 在启动时回灌（存储域 `sources-cache.json`，按 sourceId 存）。
 
 ## 发现页的分类与搜索
@@ -104,7 +104,18 @@ post_process 写入进程内缓存，baozimh 的 images 依赖它）；`enabled`
 
 预取：虚拟器的 `overscan` 按**视口上下各两屏**换算成页数（`PREFETCH_SCREENS`，长条漫一页就超过两屏所以下限 1，上限 8）。挂载范围就是预取范围，挂载到的页一律 `loading="eager"`——浏览器自己的 `lazy` 只提前约一屏，会把已经挂载好的后两屏又压回「滚到才取」。下一话的触发同样按两屏算（`nearBottomByPx`，按像素而不是滚动比例，长条漫与常规页才都合适）。
 
-阅读位置：记录与恢复都在 `src/lib/hooks/use-reader-position.ts`（`useReaderPosition`），组件只把滚动容器、虚拟器适配面（`src/lib/reader-virtualizer.ts` 把 `measurementsCache` 转成 `sizes()` / `entryAt()` / `scrollToOffset()`，稀疏空洞在那里归 0）、已加载页、章节列表与作品交进去，拿到一个 `record()`。进度记录的是「话内第几张图 + 图内位置」（`ProgressRecord` 的 `pageIndex` / `offsetInPage`，按视口中心算），恢复时把那一处放回视口中心（页面列表就绪后滚一次，容器还没铺开时等下一帧）。用页码而不是整话比例，是因为比例乘的是「实测 + 估算」混合的整话总高，两次会话的混合构成不同会落到相邻的页上；页码在两次会话里指向同一张图（恢复与虚拟器渲染读的是同一份 `measurementsCache`）。图内位置要留：长条漫一页好几屏，只记页码会跳很远。每个实例只恢复一次，跨话连读追加的页不会再把人拽回旧位置。写进度与记历史分开：`record()` 只写进度，历史由滚动回调按「本地阅读不写历史」的规则补一次。
+阅读位置：记录与恢复都在 `src/lib/hooks/use-reader-position.ts`（`useReaderPosition`），组件只把滚动容器、虚拟器适配面（`src/lib/reader-virtualizer.ts` 把 `measurementsCache` 转成 `sizes()` / `entryAt()` / `scrollToOffset()`，稀疏空洞在那里归 0）、已加载页、章节列表与作品交进去，拿到一个 `record()`。进度记录的是「话内第几张图 + 图内位置」（`ProgressRecord` 的 `pageIndex` / `offsetInPage`，按视口中心算），恢复时把那一处放回视口中心（页面列表就绪后滚一次，容器还没铺开时等下一帧）。用页码而不是整话比例，是因为比例乘的是「实测 + 估算」混合的整话总高，两次会话的混合构成不同会落到相邻的页上；页码在两次会话里指向同一张图（恢复与虚拟器渲染读的是同一份 `measurementsCache`）。图内位置要留：长条漫一页好几屏，只记页码会跳很远。每个实例只恢复一次，跨话连读追加的页不会再把人拽回旧位置。写进度与记历史分开：`record()` 只写进度，历史由滚动回调补一次，且只记元数据有真实标题的条目。
+
+## 阅读器的数据来源（含已下载章节的离线阅读）
+
+两条入口共用同一个 `Reader`：`/reader/...`（详情页的「继续阅读」与章节块）与 `/local/...`（书架「下载」tab，`local` 为真）。章节表与页面按「手头有什么用什么」取：
+
+- 章节表：`local` 模式只认下载目录；其余先读结果缓存（详情页每次进都刷新它，所以离线进阅读器也立刻有带标题的章节表），缓存没有但这部作品有下载就用下载清单（元数据合成，`syntheticComicRef` 标记），都没有才联网拉详情（渲染源的章节中转链也靠这次抓取），联网也失败才算首屏失败。
+- 页面：下载清单里有这一话就直接读磁盘上的页（原图 URL 优先，旧数据回落到 `chapter_<n>/<file>` 相对路径），否则走 `images` op；一个地址都取不到按加载失败处理（离线且这一话没下载就是这样），不留空画布。
+- 取图统一走 `imgSrc(page.url, {source, comicId})`：代理先查下载索引读本地文件，未命中才联网。所以「已下载的话」在线时也读磁盘，断网时照常可读。
+- 历史只在章节表有真实标题时写：下载目录兜底时标题只有话序号，历史 tab 保持链在线 reader（wayfinder #19 的口径）。
+
+端到端核对（应用在跑）：`node scripts/verify-offline-reading.mjs` 造一份指向不存在域名的假下载数据，确认 `/local/...` 与 `/reader/...` 两条入口的图片都从磁盘渲染出来；`node scripts/verify-online-reader-network.mjs` 确认真实作品的在线阅读没被改坏。
 
 恢复的触发不能挂在虚拟器的 `onChange` 上：页面数变化时 `getVirtualIndexes` 会把 `maybeNotify` 的依赖同步掉，`_willUpdate` 在滚动元素没换时也不通知，`onChange` 可能整场不触发。判断内容是否铺开看虚拟器给出的页（`entryAt()` 量不到时返回 null，等下一帧）；虚拟器的 `itemSizeCache` 只装测量值与估算不同的页，源比例学准之后实测与估算一致，这个 Map 一直是空的，所以它不能用来判断「有没有测量过」——跨话预取的守卫因此改成「至少一张图 `onLoad` 过」（`imageLoadedRef`）。
 

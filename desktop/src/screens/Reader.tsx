@@ -20,11 +20,12 @@ import {
 } from "lucide-react";
 import {
     crawl,
+    crawlCached,
     imgSrc,
-    localSrc,
     listDownloaded,
     type Chapter,
     type Comic,
+    type DownloadedPage,
 } from "../api";
 import { filterExternalChapters } from "../lib/chapters";
 import { windowChrome } from "../lib/chrome";
@@ -43,6 +44,7 @@ import { ScrollProgress } from "../components/beui/scroll-progress";
 interface PageItem {
     /** 在过滤后章节列表中的下标 */
     chapterIdx: number;
+    /** 原始图 URL；旧下载数据没有索引记录时是 `chapter_<n>/<file>` 相对路径 */
     url: string;
 }
 
@@ -112,6 +114,10 @@ export default function Reader({ local = false }: { local?: boolean }) {
     const chaptersRef = useRef<Chapter[]>([]);
     const comicRef = useRef<Comic | null>(null);
     const pagesRef = useRef<PageItem[]>([]);
+    /** 下载目录里的章节 → 页面（已下载的话直接读它，不必联网取图）。 */
+    const downloadsRef = useRef<Record<string, DownloadedPage[]>>({});
+    /** 作品元数据是否来自下载目录（那时标题只有话序号，历史不写这种条目）。 */
+    const syntheticComicRef = useRef(false);
     const currentIdxRef = useRef(0);
     const loadingRef = useRef(false);
     const loadedChaptersRef = useRef<Set<number>>(new Set());
@@ -212,26 +218,36 @@ export default function Reader({ local = false }: { local?: boolean }) {
         return () => observer.disconnect();
     }, []);
 
+    /** 一章的页面地址：已下载的话读下载清单（url 优先，旧数据回落到相对路径），
+     * 否则走 images op。一个地址都取不到按加载失败处理（离线且这一话没下载就是这样）。 */
+    const chapterPages = useCallback(
+        async (chapter: Chapter): Promise<string[]> => {
+            const listed = downloadsRef.current[String(chapter.index)];
+            const imgs = listed
+                ? listed.map((p) => p.url || p.path)
+                : await crawl<string[]>("images", source!, {
+                      comicId: id,
+                      chapterIndex: chapter.index,
+                  });
+            if (imgs.length === 0) {
+                throw new Error(`第 ${chapter.index} 话没有取到页面`);
+            }
+            return imgs;
+        },
+        [source, id],
+    );
+
     /** 追加某章图片（幂等：已加载章节跳过；失败可重试）。 */
     const appendChapter = useCallback(
         async (chapterIdx: number) => {
             if (loadingRef.current || loadedChaptersRef.current.has(chapterIdx)) return;
-            if (!chaptersRef.current[chapterIdx]) return;
+            const chapter = chaptersRef.current[chapterIdx];
+            if (!chapter) return;
             loadedChaptersRef.current.add(chapterIdx);
             loadingRef.current = true;
             setLoading(true);
             try {
-                // 本地模式（wayfinder #19）：页面来自下载目录文件；在线走 crawl images
-                // wayfinder #31：离线优先用原始图 url（没记录则回退文件路径），配合 localSrc
-                const imgs = local
-                    ? (() => {
-                          const ch = chaptersRef.current[chapterIdx];
-                          return ch.pages.map((p, i) => ch.pagesUrl?.[i] || p);
-                      })()
-                    : await crawl<string[]>("images", source!, {
-                          comicId: id,
-                          chapterIndex: chaptersRef.current[chapterIdx].index,
-                      });
+                const imgs = await chapterPages(chapter);
                 const next = [
                     ...pagesRef.current,
                     ...imgs.map((url) => ({ chapterIdx, url })),
@@ -254,7 +270,7 @@ export default function Reader({ local = false }: { local?: boolean }) {
                 setLoading(false);
             }
         },
-        [source, id, local, toast],
+        [chapterPages, toast],
     );
 
     /** 顶栏显隐只在值真的变化时写入 state（滚动事件里省掉无谓的重渲染）。 */
@@ -318,10 +334,12 @@ export default function Reader({ local = false }: { local?: boolean }) {
             }
             const at = record();
             const c = comicRef.current;
-            // 本地阅读不写历史（#19：离线拿不到真实标题，历史 tab 保持链在线 reader）
-            if (at && c && !local) void touchHistory(c, at.chapterIndex);
+            // 下载目录兜底时没有真实标题，历史 tab 保持链在线 reader（#19）
+            if (at && c && !syntheticComicRef.current) {
+                void touchHistory(c, at.chapterIndex);
+            }
         }, 250);
-    }, [appendChapter, record, local, setChrome, wakeCursor]);
+    }, [appendChapter, record, setChrome, wakeCursor]);
 
     // 进入：加载详情（漫画 + 过滤后章节）+ 首章图片，并记一条历史
     // 换话时这个 effect 会重跑（chapterIndex 在依赖里），但不重置 ready：
@@ -329,29 +347,18 @@ export default function Reader({ local = false }: { local?: boolean }) {
     useEffect(() => {
         let cancelled = false;
         setBootFailed(false);
-        /** 首次加载：详情（或本地目录清单）+ 首章图片。失败记进 bootFailed，界面给重试。 */
+        /** 首次加载：详情 + 首章图片。失败记进 bootFailed，界面给重试。 */
         const boot = async () => {
-            if (local) {
-                // 本地模式：不联网，章节与页面来自下载目录（wayfinder #19）
-                const settings = await getSettings();
-                const dir = settings.downloadDir;
-                if (!dir) {
-                    if (!cancelled) setReady(true);
-                    return;
-                }
-                const listed = await listDownloaded(dir, source!, id);
-                const chs: Chapter[] = Object.entries(listed)
-                    .map(([idx, pages]) => ({
-                        index: Number(idx),
-                        title: `第 ${Number(idx)} 话`,
-                        pages: pages.map((p) => p.path),
-                        pagesUrl: pages.map((p) => p.url),
-                        external: false,
-                        downloaded: true,
-                        read: false,
-                    }))
-                    .sort((a, b) => a.index - b.index);
-                const comic: Comic = {
+            const settings = await getSettings();
+            const dir = settings.downloadDir;
+            // 下载清单：本地模式的唯一来源，也是在线阅读取不到详情时的兜底
+            const listed = dir ? await listDownloaded(dir, source!, id) : {};
+            if (cancelled) return;
+            downloadsRef.current = listed;
+
+            /** 下载目录里的章节：标题只有话序号，comic 元数据是合成的。 */
+            const fromDownloads = (): { comic: Comic; chapters: Chapter[] } => ({
+                comic: {
                     id,
                     source: source!,
                     sourceTitle: "本地",
@@ -365,40 +372,73 @@ export default function Reader({ local = false }: { local?: boolean }) {
                     tags: [],
                     lastReadChapter: 0,
                     lastReadTime: 0,
-                };
-                if (cancelled) return;
-                const target = Math.max(
-                    0,
-                    chs.findIndex((c) => c.index === Number(chapterIndex)),
+                },
+                chapters: Object.entries(listed)
+                    .map(([idx]) => ({
+                        index: Number(idx),
+                        title: `第 ${Number(idx)} 话`,
+                        // 页面地址在 appendChapter 里从下载清单取
+                        pages: [] as string[],
+                        external: false,
+                        downloaded: true,
+                        read: false,
+                    }))
+                    .sort((a, b) => a.index - b.index),
+            });
+
+            /** 抓取成功的详情：有 comic 就算成功（章节可能为空——整部都是站外章节）。 */
+            const detailOf = (v: { comic?: Comic; chapters?: Chapter[] } | null | undefined) =>
+                v?.comic
+                    ? { comic: v.comic, chapters: filterExternalChapters(v.chapters ?? []) }
+                    : null;
+
+            // 详情来源：本地模式只认下载目录；在线阅读先读结果缓存（详情页每次进都刷新它，
+            // 离线进阅读器也能立刻拿到带标题的章节表），缓存没有但这部作品有下载就用下载
+            // 清单，手头什么都没有才联网（渲染源的章节中转链也靠这次抓取）。
+            let data: { comic: Comic; chapters: Chapter[] } | null = null;
+            let synthetic = false;
+            if (local) {
+                data = fromDownloads();
+                synthetic = true;
+            } else {
+                const cached = await crawlCached<{ comic: Comic; chapters: Chapter[] }>(
+                    "detail",
+                    source!,
+                    { comicId: id },
                 );
-                comicRef.current = comic;
-                chaptersRef.current = chs;
-                setComic(comic);
-                setChapters(chs);
-                setReady(true);
-                currentIdxRef.current = target;
-                loadingRef.current = false;
-                await appendChapter(target);
-                return;
+                if (cancelled) return;
+                data = detailOf(cached?.data);
+                if (!data && Object.keys(listed).length > 0) {
+                    data = fromDownloads();
+                    synthetic = true;
+                }
+                if (!data) {
+                    const fresh = await crawl<{ comic: Comic; chapters: Chapter[] }>(
+                        "detail",
+                        source!,
+                        { comicId: id },
+                    );
+                    if (cancelled) return;
+                    data = detailOf(fresh);
+                }
             }
-            const d = await crawl<{ comic: Comic; chapters: Chapter[] }>(
-                "detail",
-                source!,
-                { comicId: id },
-            );
-            if (cancelled) return;
-            const chs = filterExternalChapters(d.chapters);
+            if (!data) {
+                throw new Error(`没有取到 ${source}/${id} 的详情`);
+            }
+
             const target = Math.max(
                 0,
-                chs.findIndex((c) => c.index === Number(chapterIndex)),
+                data.chapters.findIndex((c) => c.index === Number(chapterIndex)),
             );
-            comicRef.current = d.comic;
-            chaptersRef.current = chs;
-            setComic(d.comic);
-            setChapters(chs);
+            comicRef.current = data.comic;
+            chaptersRef.current = data.chapters;
+            syntheticComicRef.current = synthetic;
+            setComic(data.comic);
+            setChapters(data.chapters);
             setReady(true);
             currentIdxRef.current = target;
-            void touchHistory(d.comic, chs[target]?.index ?? 0);
+            // 下载目录里没有真实标题，历史 tab 保持链在线 reader（#19）
+            if (!synthetic) void touchHistory(data.comic, data.chapters[target]?.index ?? 0);
             loadingRef.current = false;
             await appendChapter(target);
         };
@@ -545,14 +585,10 @@ export default function Reader({ local = false }: { local?: boolean }) {
                                             }}
                                         >
                                             <ReaderPage
-                                                src={
-                                                    local
-                                                        ? localSrc(page.url, {
-                                                              source,
-                                                              comicId: id,
-                                                          })
-                                                        : imgSrc(page.url)
-                                                }
+                                                src={imgSrc(page.url, {
+                                                    source,
+                                                    comicId: id,
+                                                })}
                                                 index={vi.index}
                                                 reserved={reserved}
                                                 autoTrim={autoTrim}

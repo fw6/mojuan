@@ -21,8 +21,6 @@ export interface Chapter {
     index: number;
     title: string;
     pages: string[];
-    /** 本地（离线）章节：与 pages 平行的原始图 URL（wayfinder #31，旧数据可能为空串）。 */
-    pagesUrl?: string[];
     /** 外链章节（内容托管站外，如 MangaPlus）：列表与「下一话」一律过滤（grilling #6） */
     external: boolean;
     downloaded: boolean;
@@ -192,30 +190,37 @@ function proxyBase(): string {
     return imgProxyPort ? `http://127.0.0.1:${imgProxyPort}` : "";
 }
 
-/** 热链保护的图片重写为本机代理 /img?url=..&ref=..（Referer 由源注册表声明），
- * 其余保持直连吃 webview 缓存。 */
-export function imgSrc(url: string): string {
-    const base = proxyBase();
-    if (!base) return url;
-    const referer = hotlinkRefererFor(url);
-    if (!referer) return url;
-    return `${base}/img?url=${encodeURIComponent(url)}&ref=${encodeURIComponent(referer)}`;
-}
-
-/** 离线/本地页 → 本机代理 /img（wayfinder #31：离线也传 url）。
- * 传入的是 URL 且有 source+comicId 时走 /img?url=..&source=..&comicId=..（端点查下载索引）；
- * 否则按本地路径走 /img?path=（旧数据兼容）。 */
-export function localSrc(
-    v: string,
+/** 图片地址重写为本机代理 `/img`（research #31 换代理：单端点同时服务热链取图与本地文件）。
+ * 调用方无需区分本地与网络：
+ * - 本地路径（旧下载数据没有索引记录）→ `/img?path=..`，相对路径由代理按
+ *   `<下载目录>/<source>/<comicId>` 定位，所以路径形态也要带上 source+comicId；
+ * - URL → `/img?url=..&ref=..`（源注册表声明的热链 Referer），带 source+comicId 时代理
+ *   先查下载索引，命中直接读下载文件，未命中才联网取图。
+ * 没有要带 Referer 的域、也没有 source+comicId 的图片保持直连（吃 webview 的 HTTP 缓存）；
+ * 代理端口没就绪时本地路径没有可用的地址。 */
+export function imgSrc(
+    value: string,
     opts?: { source?: string; comicId?: string },
 ): string {
     const base = proxyBase();
-    if (!base) return "";
     const { source, comicId } = opts ?? {};
-    if (/^https?:\/\//i.test(v) && source && comicId) {
-        return `${base}/img?url=${encodeURIComponent(v)}&source=${encodeURIComponent(source)}&comicId=${encodeURIComponent(comicId)}`;
+    const local = Boolean(source && comicId);
+    const localParams = () => [
+        `source=${encodeURIComponent(source!)}`,
+        `comicId=${encodeURIComponent(comicId!)}`,
+    ];
+    if (!/^https?:\/\//i.test(value)) {
+        if (!base) return "";
+        const params = [`path=${encodeURIComponent(value)}`];
+        if (local) params.push(...localParams());
+        return `${base}/img?${params.join("&")}`;
     }
-    return `${base}/img?path=${encodeURIComponent(v)}`;
+    const referer = hotlinkRefererFor(value);
+    if (!base || (!referer && !local)) return value;
+    const params = [`url=${encodeURIComponent(value)}`];
+    if (referer) params.push(`ref=${encodeURIComponent(referer)}`);
+    if (local) params.push(...localParams());
+    return `${base}/img?${params.join("&")}`;
 }
 
 // ---------- WebDAV 备份/恢复（wayfinder #24/#25：core 传输，前端组装内容） ----------

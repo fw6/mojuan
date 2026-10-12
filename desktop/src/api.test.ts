@@ -12,7 +12,6 @@ import {
     crawl,
     crawlCached,
     imgSrc,
-    localSrc,
     initImgProxy,
     mojuanVersion,
     scanLocal,
@@ -39,7 +38,7 @@ async function setProxyPort(port: number) {
     await initImgProxy();
 }
 
-describe("imgSrc（热链域 → 本机代理，其余直连；research #31 换代理）", () => {
+describe("imgSrc（→ 本机代理 /img；research #31 换代理）", () => {
     beforeEach(() => {
         // 热链对由源注册表声明（真实启动由 initSources 填充）
         applyBundledSources(
@@ -70,6 +69,37 @@ describe("imgSrc（热链域 → 本机代理，其余直连；research #31 换�
     it("非热链域保持直连（吃 webview HTTP 缓存）", () => {
         const src = "https://uploads.mangadex.org/covers/abc/def.jpg";
         expect(imgSrc(src)).toBe(src);
+    });
+
+    it("带 source+comicId 的阅读页一律走代理（端点查下载索引），热链 Referer 一起带上", async () => {
+        await setProxyPort(16320);
+        const url = "https://s.pstatic.net/ch1/0.jpg";
+        expect(imgSrc(url, { source: "webtoons", comicId: "c1" })).toBe(
+            "http://127.0.0.1:16320/img?url=" +
+                encodeURIComponent(url) +
+                "&ref=" +
+                encodeURIComponent("https://www.webtoons.com/") +
+                "&source=webtoons&comicId=c1",
+        );
+    });
+
+    it("非热链域的阅读页也走代理（本地有下载文件时读磁盘）", async () => {
+        await setProxyPort(16320);
+        const url = "https://uploads.mangadex.org/ch1/0.jpg";
+        expect(imgSrc(url, { source: "mangadex", comicId: "c1" })).toBe(
+            `http://127.0.0.1:16320/img?url=${encodeURIComponent(url)}&source=mangadex&comicId=c1`,
+        );
+    });
+
+    it("本地文件路径（旧下载数据）→ /img?path=…，带上 source+comicId 供代理定位相对路径", async () => {
+        await setProxyPort(16320);
+        const abs = "/Users/me/Downloads/mojuan/webtoons/c1/chapter_1/0.jpg";
+        expect(imgSrc(abs, { source: "webtoons", comicId: "c1" })).toBe(
+            `http://127.0.0.1:16320/img?path=${encodeURIComponent(abs)}&source=webtoons&comicId=c1`,
+        );
+        expect(imgSrc("chapter_1/0.jpg", { source: "webtoons", comicId: "c1" })).toBe(
+            `http://127.0.0.1:16320/img?path=${encodeURIComponent("chapter_1/0.jpg")}&source=webtoons&comicId=c1`,
+        );
     });
 });
 
@@ -134,24 +164,6 @@ describe("mojuanVersion", () => {
         mockedInvoke.mockResolvedValue("0.1.0");
         await expect(mojuanVersion()).resolves.toBe("0.1.0");
         expect(mockedInvoke).toHaveBeenCalledWith("mojuan_version");
-    });
-});
-
-describe("localSrc（离线页 → 本机代理 /img；wayfinder #31 离线也传 url）", () => {
-    it("本地路径（旧数据）→ /img?path=…", async () => {
-        await setProxyPort(16320);
-        const p = "/Users/me/Downloads/mojuan/webtoons/c1/chapter_1/0.jpg";
-        expect(localSrc(p)).toBe(
-            `http://127.0.0.1:16320/img?path=${encodeURIComponent(p)}`,
-        );
-    });
-
-    it("URL + source + comicId → /img?url=..&source=..&comicId=..（端点查下载索引）", async () => {
-        await setProxyPort(16320);
-        const url = "https://s.pstatic.net/ch1/0.jpg";
-        expect(localSrc(url, { source: "webtoons", comicId: "c1" })).toBe(
-            `http://127.0.0.1:16320/img?url=${encodeURIComponent(url)}&source=webtoons&comicId=c1`,
-        );
     });
 });
 

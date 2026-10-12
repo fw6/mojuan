@@ -27,6 +27,7 @@ import { errorFirstLine } from "../lib/errors";
 import {
     syncSources,
     sourceErrors,
+    setImgProxyDownloadDir,
     webdavGet,
     webdavPut,
     mojuanVersion,
@@ -146,6 +147,8 @@ export default function Settings() {
         if (typeof dir !== "string") return;
         await setSettings({ downloadDir: dir });
         setSettingsState((s) => (s ? { ...s, downloadDir: dir } : s));
+        // 代理按这个目录查下载索引（离线阅读读本地文件），改了就同步，不用重启
+        await setImgProxyDownloadDir(dir);
     }
 
     async function toggleTrim(trim: boolean) {

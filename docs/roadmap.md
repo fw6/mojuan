@@ -17,6 +17,8 @@ wayfinder 地图「从 Lynx 迁移到 Tauri」(#2) 已关闭，桌面 v1 功能�
 ## 离线阅读（已下载/本地漫画的阅读）
 
 > 已实现（2026-08-15，[wayfinder 地图 #18](https://github.com/fw6/mojuan/issues/18)）：下载目录改为 `<dir>/<source>/<comicId>/…` 命名空间；Library「下载/本地」tab 点漫画就地展开章节 → 本地阅读器（`/local`，Reader local 模式，图片经本机 HTTP 代理的本地文件模式渲染，全程无网络）；「本地」tab 兼容旧扁平导入（source 记 `"local"`）；进度与在线共用 (source, comicId) 键。
+>
+> 阅读器（`/reader`，「继续阅读」那条路径）也接了同一条离线链（2026-10-12）：章节表按「结果缓存 → 下载清单 → 联网」取，已下载的话直接读磁盘上的页，取图统一经代理先查下载索引——断网时两条入口都能读已下载的章节。
 
 ## 移动里程碑（桌面 v1 后，grilling #3/#6 定）
 

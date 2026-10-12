@@ -226,10 +226,10 @@ Tauri 官方 Builder 文档原话（本地源码 `tauri-2.11.5/src/app.rs` `regi
 - **iOS/macOS**：`WKURLSchemeHandler` 的 `stopURLSchemeTask:`（元素卸载即触发）由 wry 移除 task key（`url_scheme_handler.rs:stop_task`），异步 responder 校验失败 → **响应被静默丢弃**，即便 Rust 已下载完并落盘。
 
 **修复（四层，2026-08-18 换代理定案：自用 + Android 优先）**：
-1. **图片交付从自定义 scheme 换成 127.0.0.1 本机 HTTP 代理**（`src-tauri/src/img_proxy.rs`，hyper server）：前端 `imgSrc`/`localSrc` 拼 `http://127.0.0.1:<port>/img?...`，端口启动时经 `img_proxy_port` 命令取（`main.tsx` 渲染前 `initImgProxy`）。普通 HTTP 请求绕开 `shouldInterceptRequest` 的 30s 上限（Android 根因根治）；`mojuan-img://` scheme 注册与相关代码已移除（AGENTS.md 废弃路径直接删）。iOS 元素卸载仍会 abort 请求 → 第 2 层兜底。
+1. **图片交付从自定义 scheme 换成 127.0.0.1 本机 HTTP 代理**（`src-tauri/src/img_proxy.rs`，hyper server）：前端 `imgSrc` 拼 `http://127.0.0.1:<port>/img?...`，端口启动时经 `img_proxy_port` 命令取（`main.tsx` 渲染前 `initImgProxy`）。普通 HTTP 请求绕开 `shouldInterceptRequest` 的 30s 上限（Android 根因根治）；`mojuan-img://` scheme 注册与相关代码已移除（AGENTS.md 废弃路径直接删）。iOS 元素卸载仍会 abort 请求 → 第 2 层兜底。
 2. 前端 `ProxyImage`（`desktop/src/components/ProxyImage.tsx`）：`<img>` 加载失败按指数退避重建同 URL 重试（300/600/1200/2400ms，最多 4 次），命中缓存即成功；Reader 逐页图接入。
 3. Rust `mojuan_core::cache::fetch_image` 加**单飞行去重**：同 URL 下载只发起一次，重试/并发在槽上等同一结果（`IN_FLIGHT` 表），避免移动端慢网下重复拉取大图、并让重试在拦截超时窗口内返回。
-4. **离线阅读统一走 url（下载索引）**：下载落盘时记录 `url → 相对路径` 到 `<下载目录>/<source>/<comicId>/download_index.json`（`mojuan-core/native/download_index.rs`）；端点 `/img?url=..&source=..&comicId=..` 先查下载索引（命中直接读下载文件），否则回落 `fetch_image` 缓存。`listDownloaded` 返回 `{url, path}`，离线 Reader 只传 url；旧数据（无索引记录）回退 `/img?path=`。代理下载目录经 `img_proxy_set_download_dir` 命令同步（main.tsx 读 settings 后调用）。
+4. **离线阅读统一走 url（下载索引）**：下载落盘时记录 `url → 相对路径` 到 `<下载目录>/<source>/<comicId>/download_index.json`（`mojuan-core/native/download_index.rs`）；端点 `/img?url=..&source=..&comicId=..` 先查下载索引（命中直接读下载文件），否则回落 `fetch_image` 缓存。`listDownloaded` 返回 `{url, path}`，阅读器用 `imgSrc(value, {source, comicId})` 拼地址；旧数据（无索引记录）走 `/img?path=`，相对路径由代理按 `<下载目录>/<source>/<comicId>` 定位。下载目录经 `img_proxy_set_download_dir` 命令交给代理（`main.tsx` 读 settings 后调用、设置页改目录时再调一次），代理与前端共享同一个 `Arc<Mutex<String>>` 并每次请求现读。
 
 **Android release 明文**：`gen/android` 被 gitignore 且 CI 每次 `tauri android init` 重建，release `usesCleartextTraffic=false` 会拦 `http://127.0.0.1` 明文请求（debug 为 true 无需处理）。CI 在 init 后注入 `network_security_config.xml` 放行 `127.0.0.1`/`localhost`（`scripts/android-netsec.sh`）；本地 release 构建先跑该脚本。iOS：ATS 豁免 loopback、app 源 `tauri://` 非 https 无 mixed content，无需配置。
 

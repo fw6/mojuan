@@ -10,8 +10,8 @@ import type { ProgressRecord } from "../lib/storage/progress";
 
 vi.mock("../api", () => ({
     crawl: vi.fn(),
-    imgSrc: (url: string) => url,
-    localSrc: (url: string) => url,
+    crawlCached: vi.fn(),
+    imgSrc: vi.fn((url: string) => url),
     listDownloaded: vi.fn().mockResolvedValue({}),
 }));
 
@@ -25,7 +25,7 @@ vi.mock("../lib/storage/progress", () => ({
 }));
 
 vi.mock("../lib/storage/settings", () => ({
-    getSettings: vi.fn().mockResolvedValue({ autoTrim: false, downloadDir: null }),
+    getSettings: vi.fn().mockResolvedValue({ autoTrim: false, downloadDir: "/tmp/dl" }),
 }));
 
 vi.mock("@tauri-apps/api/window", () => ({
@@ -35,11 +35,16 @@ vi.mock("@tauri-apps/api/window", () => ({
     }),
 }));
 
-import { crawl } from "../api";
+import { crawl, crawlCached, imgSrc, listDownloaded } from "../api";
+import { touchHistory } from "../lib/storage/history";
 import { getProgress, setProgress } from "../lib/storage/progress";
 import { ToastProvider } from "../components/toast";
 
 const mockedCrawl = vi.mocked(crawl);
+const mockedCrawlCached = vi.mocked(crawlCached);
+const mockedImgSrc = vi.mocked(imgSrc);
+const mockedListDownloaded = vi.mocked(listDownloaded);
+const mockedHistory = vi.mocked(touchHistory);
 const mockedProgress = vi.mocked(getProgress);
 const mockedSetProgress = vi.mocked(setProgress);
 
@@ -70,9 +75,13 @@ function chapter(index: number): Chapter {
     };
 }
 
-/** 详情返回两话，images 返回固定页数的占位地址。 */
+/** 详情走结果缓存（详情页每次进都刷新它），images 返回固定页数的占位地址。 */
 const PAGES_PER_CHAPTER = 6;
 function stubCrawl() {
+    mockedCrawlCached.mockResolvedValue({
+        data: { comic: COMIC, chapters: [chapter(1), chapter(2)] },
+        fetchedAt: Date.now(),
+    } as unknown as Awaited<ReturnType<typeof crawlCached>>);
     mockedCrawl.mockImplementation((async (op: string) => {
         if (op === "detail") {
             return { comic: COMIC, chapters: [chapter(1), chapter(2)] };
@@ -93,10 +102,27 @@ function renderReader() {
                         path="/reader/:source/:comicId/:chapterIndex"
                         element={<Reader />}
                     />
+                    <Route
+                        path="/local/:source/:comicId/:chapterIndex"
+                        element={<Reader local />}
+                    />
                 </Routes>
             </MemoryRouter>
         </ToastProvider>,
     );
+}
+
+/** 离线场景：详情缓存为空、联网抓取给空结果，章节与页面只能来自下载目录。 */
+function stubOffline() {
+    mockedCrawlCached.mockResolvedValue(null);
+    mockedCrawl.mockImplementation((async (op: string) =>
+        op === "detail" ? {} : []) as unknown as typeof crawl);
+    mockedListDownloaded.mockResolvedValue({
+        "1": [
+            { url: "https://img/0.jpg", path: "chapter_1/0.jpg" },
+            { url: "", path: "chapter_1/1.jpg" },
+        ],
+    });
 }
 
 /** 阅读器自己的滚动容器（页面自带滚动，外层槽位不套一层）。 */
@@ -211,5 +237,77 @@ describe("阅读器的阅读位置记录", () => {
                 offsetInPage: 400 / PAGE_HEIGHT,
             }),
         );
+    });
+});
+
+describe("阅读器的详情与取图来源", () => {
+    // 虚拟器按元素的 offsetHeight 取外层尺寸，jsdom 里恒为 0（range 为 null → 一页都不挂载）。
+    // 断言取图地址的用例需要页面真的渲染出来，给它一个固定视口高度。
+    beforeEach(() => {
+        Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+            get: () => VIEWPORT,
+            configurable: true,
+        });
+    });
+
+    it("缓存与下载都没有时联网拉详情，取图走 images op", async () => {
+        mockedCrawlCached.mockResolvedValue(null);
+        mockedListDownloaded.mockResolvedValue({});
+        const { container } = renderReader();
+
+        await waitFor(() => expect(container.textContent).toContain("测试作品"));
+        expect(mockedCrawl).toHaveBeenCalledWith("detail", "webtoons", {
+            comicId: "webtoons-1",
+        });
+        await waitFor(() =>
+            expect(mockedCrawl).toHaveBeenCalledWith("images", "webtoons", {
+                comicId: "webtoons-1",
+                chapterIndex: 1,
+            }),
+        );
+    });
+
+    it("详情缓存与联网都拿不到时，章节与页面来自下载目录，且不写历史", async () => {
+        stubOffline();
+        const { container } = renderReader();
+
+        // 章节表只有下载的那一话，且没有发过任何抓取请求
+        await waitFor(() => expect(container.textContent).toContain("第 1 话"));
+        expect(mockedCrawl).not.toHaveBeenCalled();
+
+        // 页面来自下载清单：有索引记录的话用原图 URL，没有则回落到相对路径
+        await waitFor(() =>
+            expect(mockedImgSrc).toHaveBeenCalledWith("https://img/0.jpg", {
+                source: "webtoons",
+                comicId: "webtoons-1",
+            }),
+        );
+        expect(mockedImgSrc).toHaveBeenCalledWith("chapter_1/1.jpg", {
+            source: "webtoons",
+            comicId: "webtoons-1",
+        });
+
+        // 下载目录里没有真实标题，历史不记这种条目
+        const sc = scroller(container);
+        stubGeometry(sc, contentHeight(container));
+        sc.scrollTop = PAGE_HEIGHT;
+        fireEvent.scroll(sc);
+        await waitFor(() => expect(mockedSetProgress).toHaveBeenCalled());
+        expect(mockedHistory).not.toHaveBeenCalled();
+    });
+
+    it("已下载的话不再联网取图，章节表来自缓存时照写历史", async () => {
+        mockedListDownloaded.mockResolvedValue({
+            "1": [{ url: "https://img/0.jpg", path: "chapter_1/0.jpg" }],
+        });
+        const { container } = renderReader();
+
+        await waitFor(() => expect(container.textContent).toContain("测试作品"));
+        expect(mockedCrawl).not.toHaveBeenCalledWith(
+            "images",
+            expect.anything(),
+            expect.anything(),
+        );
+        await waitFor(() => expect(mockedHistory).toHaveBeenCalled());
     });
 });

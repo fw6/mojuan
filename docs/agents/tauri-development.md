@@ -11,15 +11,20 @@
 - 改前端（`desktop/src/`）：`npm run tauri dev` 热更新。
 - 改 Rust 后端（`desktop/src-tauri/`）：改 Rust 触发后端重编，比前端慢。
 
-## 图片加载（热链域必须走代理）
+## 图片加载（热链域与已下载章节都走代理）
 
-- 热链域（如 Webtoons pstatic.net）的图片走本机 HTTP 代理：`src-tauri/src/img_proxy.rs` 在
-  127.0.0.1 上起 hyper 服务，端点 `/img`（`url` 走热链缓存取图，`path` 走本地文件）；Rust 侧
-  补 Referer 并复用磁盘缓存与内存 LRU（`mojuan_core::cache::fetch_image`）。
-- 前端把这类图片的 `src` 重写成 `http://127.0.0.1:<port>/img?url=…&ref=…`（`api.ts` 的
-  `imgSrc`，端口经 `img_proxy_port` 命令取）。哪些域名属于热链域由源注册表声明，见
-  `docs/agents/frontend.md` 的「源清单与按源事实」。
-- 其余域 `<img>` 直连，吃 webview HTTP 缓存。
+- 本机 HTTP 代理：`src-tauri/src/img_proxy.rs` 在 127.0.0.1 上起 hyper 服务，**单端点** `/img`
+  按优先级取图：`source+comicId+url` 查下载索引（命中直接读下载文件）→ `path` 读本地文件
+  （相对路径按 `<下载目录>/<source>/<comicId>` 定位）→ `url` 走热链缓存
+  （`mojuan_core::cache::fetch_image` 补 Referer，复用磁盘缓存与内存 LRU）。调用方不必区分本地与网络。
+- 前端拼地址走 `api.ts` 的 `imgSrc(value, {source, comicId})`：热链域的图片、以及带了
+  `source+comicId` 的图片（阅读页）重写成 `http://127.0.0.1:<port>/img?…`；本地路径（下载清单里
+  没有索引记录的旧数据）重写成 `/img?path=…`。端口经 `img_proxy_port` 命令取。哪些域名属于
+  热链域由源注册表声明，见 `docs/agents/frontend.md` 的「源清单与按源事实」。
+- 既没有热链 Referer、也没有 `source+comicId` 的图片（列表封面）保持直连，吃 webview HTTP 缓存。
+- 下载目录经 `img_proxy_set_download_dir` 命令交给代理（`main.tsx` 启动时、设置页改目录时），
+  代理与前端共享同一个 `Arc<Mutex<String>>` 并**每次请求现读**：离线阅读靠它查下载索引，改设置
+  之后不用重启。
 - 原因：macOS/Linux 无法给 `<img>` 注入 Referer，只能走代理。各平台给 `<img>` 注入请求头的
   能力与早期自定义 scheme 方案的取舍见 `docs/research/desktop-webview-images.md`；后来改成
   本机 HTTP 代理的原因（自定义 scheme 撞上 wry `shouldInterceptRequest` 的 30s 响应上限）见
