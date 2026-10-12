@@ -1,0 +1,19 @@
+apps/mojuan/src-tauri/examples/render_probe.rs
+  s_16759e9ae56874::t_61c4419dde1ae4 107
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.49-trip",
+  "base_commit_sha": "c92210c74cb7dc400d18f6726a8a46e6ef86cd7e",
+  "prompts": {},
+  "sessions": {
+    "s_16759e9ae56874": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_ace295f9-0218-4373-955b-6ca505653696",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
