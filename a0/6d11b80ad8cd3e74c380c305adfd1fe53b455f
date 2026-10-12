@@ -1,0 +1,21 @@
+.zcodeignore
+  s_38efb48a1e0987::t_aa6714238c9719 1-65
+desktop/.gitignore
+  s_38efb48a1e0987::t_aa6714238c9719 42-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.45-trip",
+  "base_commit_sha": "a06d11b80ad8cd3e74c380c305adfd1fe53b455f",
+  "prompts": {},
+  "sessions": {
+    "s_38efb48a1e0987": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_33d3bf2c-a5fe-4483-bb51-d87b72622ad3",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
