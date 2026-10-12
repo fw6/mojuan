@@ -26,9 +26,10 @@
 
 ## 应用版本
 
-- 版本只写在仓库根 `Cargo.toml` 的 `[workspace.package].version`；`apps/mojuan/src-tauri` 与 `crates/mojuan-core` 用 `version.workspace = true` 继承。
-- `tauri.conf.json` 不写 `version`：tauri 的 CLI、代码生成（`tauri-codegen` 回落到 `CARGO_PKG_VERSION`）与 `tauri-action` 的 `__VERSION__` 都回落到 Cargo 的包版本，所以 macOS 包名、`package_info().version`（Android OTA 的版本比对用它）与 release 的 tag 名都跟着走。
-- 发布流程要版本时用 `node scripts/app-version.mjs`（读 `cargo metadata`），不要从别的文件里抄。
+- **事实来源是 `apps/mojuan/src-tauri/tauri.conf.json` 的 `version`**（Tauri 官方推荐把版本放在配置里）。桌面端的产品名与包版本、Android 的 `versionName`/`versionCode`（写进 `gen/android/app/tauri.properties`，`tauri android build` 时生成，1.6.5 → 1006005）、iOS 的 `CFBundleShortVersionString`（`tauri ios init` 时写进 `gen/apple/project.yml`）都从这里取。
+- **不要把它删掉交给 Cargo 回落**：桌面端的 CLI 与 `tauri-codegen` 确实会回落到 `CARGO_PKG_VERSION`，但 Android 与 iOS 这两条路不回落到——缺了 `version`，Android 会静默用 Gradle 模板的 `1.0` / `1`（`versionCode` 比已装的小，OTA 装不上），iOS 的包版本变成 `1.0.0`。1.6.4 就是这么发出去的。
+- 根 `Cargo.toml` 的 `[workspace.package].version` 是跟着配置写的副本（Cargo 读不了 json），两个 crate 用 `version.workspace = true` 继承。`apps/mojuan/src-tauri/tests/tauri_config.rs` 有一条断言守着两者一致（改一处忘另一处时测试变红）。
+- 发布流程要版本时用 `node scripts/app-version.mjs`（读配置）。
 
 ## 命令
 

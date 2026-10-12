@@ -10,8 +10,9 @@ members = [
 exclude = [".scratch"]
 resolver = "2"
 
-# 应用版本只写在这里：两个 crate 用 version.workspace = true 继承，tauri.conf.json 不写
-# version（tauri 的 CLI、代码生成与 tauri-action 都回落到 Cargo 的包版本），
-# 发布流程用 scripts/app-version.mjs 取。
+# 应用版本的事实来源是 apps/mojuan/src-tauri/tauri.conf.json 的 version（Tauri 官方推荐，
+# Android 的 versionName/versionCode 与 iOS 的 CFBundleShortVersionString 都从它取）。
+# Cargo 读不了 json，所以这里跟一份，apps/mojuan/src-tauri/tests/tauri_config.rs 有一条
+# 断言守着两者一致；发布流程用 scripts/app-version.mjs 取。
 [workspace.package]
-version = "1.6.4"
+version = "1.6.5"
