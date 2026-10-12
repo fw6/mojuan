@@ -1,5 +1,5 @@
-# 独立测试门槛（grilling #10 定案）：PR/push 触发，cargo test + tsc + vitest run
-# + 更新通道（updater/）的 node --test。
+# 独立测试门槛（grilling #10 定案）：PR/push 触发，一次 pnpm install 之后跑
+# tsc + vitest + 更新通道（apps/updater/）的 node --test + cargo test。
 # 发布走 release.yml（tag 触发），不在此重复。
 name: CI
 
@@ -11,9 +11,6 @@ on:
 jobs:
   check:
     runs-on: ubuntu-22.04
-    defaults:
-      run:
-        working-directory: desktop
     steps:
       - uses: actions/checkout@v7
 
@@ -23,34 +20,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
 
+      # pnpm 版本取自 package.json 的 packageManager；必须在 setup-node 之前（cache: pnpm 要用到它）
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
           node-version: lts/*
-          cache: 'npm'
-          cache-dependency-path: desktop/package-lock.json
+          cache: pnpm
 
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: swatinem/rust-cache@v2
-        with:
-          workspaces: './desktop -> target'
 
-      - run: npm ci
-      - run: npx tsc --noEmit
-      - run: npm test
+      # 一次安装装完 npm 图（两个包）与 crate 图
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm test
       - run: cargo test
-
-  # 更新通道的 Worker：只依赖 node 内置测试运行器，不需要装依赖
-  updater:
-    runs-on: ubuntu-22.04
-    defaults:
-      run:
-        working-directory: updater
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: lts/*
-
-      - run: npm test

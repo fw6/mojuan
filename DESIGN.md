@@ -254,8 +254,8 @@ components:
 - **构图**：透明底——不画纸、不画圆角底板、不加阴影，各平台自己套壳。侧脸占画布宽约 56%、高约 71%，四周留白不少于 10%；颈下不封口，墨自然化开。
 - **小尺寸**：16px 时仍能认出侧脸与髻；因此不为小尺寸另画简化版。
 - **界面里的用法**：侧边栏顶部的品牌位把标记放在一枚 36px 的纸色方块里（令牌 `--paper`），方块取侧边栏导航项同一档圆角。方块的颜色就是标记自己的纸，与 iOS / Android 给标记铺的底同色，所以深色主题下标记也落在纸上，墨与纸的关系不变；标记在方块里的占比与图标自身的构图一致，不为这个尺寸另缩放、另画一版。侧边栏折叠成图标轨道时，顶部只剩这枚方块。
-- **源文件**：`desktop/src-tauri/icons/app-icon.svg` 是唯一需要手改的一份。`app-icon-fg.svg`（Android 前景，与它只差放大后的 viewBox 与整块位移）与 `app-icon-monochrome.svg`（主题图标剪影：头形加髻）是派生文件，改笔画后需同步；`desktop/public/app-icon.svg` 是给网页 favicon 的副本。
-- **生成**：`cd desktop && npx tauri icon src-tauri/icons/icon.manifest.json -o src-tauri/icons`，一次产出桌面（png / ico / icns）、iOS（`src-tauri/gen/apple`）、Android（`src-tauri/gen/android`）三套图标。移动端那两套写进 `gen/` 的工程目录，所以**必须在 `tauri android init` / `tauri ios init` 之后跑**——`gen/` 不入库，CI 每次现 init，init 装的是 Tauri 模板的默认图标，不补这一步发出去的包就带默认图（`release.yml` 的两个移动作业都紧接 init 调了这条命令）。
+- **源文件**：`apps/mojuan/src-tauri/icons/app-icon.svg` 是唯一需要手改的一份。`app-icon-fg.svg`（Android 前景，与它只差放大后的 viewBox 与整块位移）与 `app-icon-monochrome.svg`（主题图标剪影：头形加髻）是派生文件，改笔画后需同步；`apps/mojuan/public/app-icon.svg` 是给网页 favicon 的副本。
+- **生成**：`pnpm --filter @mojuan/app exec tauri icon src-tauri/icons/icon.manifest.json -o src-tauri/icons`，一次产出桌面（png / ico / icns）、iOS（`src-tauri/gen/apple`）、Android（`src-tauri/gen/android`）三套图标。移动端那两套写进 `gen/` 的工程目录，所以**必须在 `tauri android init` / `tauri ios init` 之后跑**——`gen/` 不入库，CI 每次现 init，init 装的是 Tauri 模板的默认图标，不补这一步发出去的包就带默认图（`release.yml` 的两个移动作业都紧接 init 调了这条命令）。
 - **Android 自适应图标**：前景是同一张图缩进 66/108 安全区；背景用纸色 `#f6f3ec`，与脸上的纸同色；单色层交给系统的主题着色。iOS 图标不允许透明，用同一个纸色铺底。
 
 **The One Mark Rule.** 一个标记只有一个版本：不为尺寸或平台另起构图，不引入第二处颜色，不在标记外面加底板。

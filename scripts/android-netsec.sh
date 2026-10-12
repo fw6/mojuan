@@ -5,7 +5,7 @@
 #（本地 release 构建或 CI 均可直接调用；对 cwd 不敏感，基于脚本自身位置定位）。
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR/../desktop"
+cd "$SCRIPT_DIR/../apps/mojuan"
 
 MANIFEST="src-tauri/gen/android/app/src/main/AndroidManifest.xml"
 RES_DIR="src-tauri/gen/android/app/src/main/res/xml"

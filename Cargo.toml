@@ -1,0 +1,11 @@
+[workspace]
+members = [
+    "apps/mojuan/src-tauri",
+    "crates/mojuan-core",
+    "crates/tauri-plugin-mojuan-render",
+    "crates/tauri-plugin-mojuan-update",
+]
+# 中间结果目录里的第三方 Cargo.toml 不进 workspace：pnpm install 会扫全树并对每个
+# Cargo.toml 跑 cargo metadata，排除掉才不会被本机留下的检出卡住整次安装。
+exclude = [".scratch"]
+resolver = "2"

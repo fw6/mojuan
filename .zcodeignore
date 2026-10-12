@@ -3,9 +3,12 @@
 *.local
 *.log*
 
-# Dist
+# 依赖与构建产物（.pnpm 是 pnpm 的 store 链接目录，含 crate 归档）
 node_modules
+.pnpm/
+target/
 dist/
+build/
 
 # IDE
 .vscode/*
@@ -20,15 +23,17 @@ dist/
 .v2c/
 
 # 探针中间产物（render_probe dump）
-desktop/.probe/
+apps/mojuan/.probe/
 
-# Cloudflare Worker 更新通道（updater/）
-updater/.dev.vars
-updater/.wrangler/
+# Cloudflare Worker 更新通道（apps/updater/）
+apps/updater/.dev.vars
+apps/updater/.wrangler/
 
-# Android 发布签名密钥（只留本机一份，口令在 .env.local；丢了就发不出可覆盖安装的更新）
+# Android 发布签名密钥与产物（密钥只留本机一份，口令在 .env.local；丢了就发不出可覆盖安装的更新）
 *.keystore
 *.jks
+*.apk
+*.apk.idsig
 
 # 中间结果（探针脚本、构建与运行日志）
 .scratch/

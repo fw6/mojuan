@@ -36,5 +36,5 @@ export AR_aarch64_linux_android="$BIN/llvm-ar"
 export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$CLANG"
 export BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android="--sysroot=$SYSROOT -I$SYSROOT/usr/include/aarch64-linux-android"
 
-cd "$(dirname "${BASH_SOURCE[0]}")/../desktop"
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
 exec cargo check --target aarch64-linux-android "$@"

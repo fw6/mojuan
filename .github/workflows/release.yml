@@ -8,6 +8,7 @@
 # capabilities 权限限定），Android 走应用内 OTA（PackageInstaller，见 ota.rs 与
 # tauri-plugin-mojuan-update）；签名私钥经 CI secret TAURI_SIGNING_PRIVATE_KEY 注入
 #（.env 不生效，必须环境变量）。
+# 发布产物统一写在仓库根的 build/（被忽略，不进任何源码目录）。
 name: release
 
 on:
@@ -43,12 +44,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
 
-      - name: setup node
-        uses: actions/setup-node@v6
+      # pnpm 版本取自 package.json 的 packageManager；必须在 setup-node 之前（cache: pnpm 要用到它）
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: lts/*
-          cache: 'npm'
-          cache-dependency-path: desktop/package-lock.json
+          cache: pnpm
 
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -57,19 +58,16 @@ jobs:
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
-        with:
-          workspaces: './desktop -> target'
 
       - name: install frontend dependencies
-        working-directory: desktop
-        run: npm install
+        run: pnpm install --frozen-lockfile
 
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
-          projectPath: desktop
+          projectPath: apps/mojuan
           tagName: app-v__VERSION__
           releaseName: 'Mojuan v__VERSION__'
           releaseDraft: false
@@ -84,16 +82,15 @@ jobs:
       contents: write
     defaults:
       run:
-        working-directory: desktop
+        working-directory: apps/mojuan
     steps:
       - uses: actions/checkout@v7
 
-      - name: setup node
-        uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: lts/*
-          cache: 'npm'
-          cache-dependency-path: desktop/package-lock.json
+          cache: pnpm
 
       - name: setup JDK 17
         uses: actions/setup-java@v4
@@ -108,11 +105,11 @@ jobs:
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
-        with:
-          workspaces: './desktop -> target'
 
+      # 安装走 workspace 根，其余步骤在 app 目录
       - name: install frontend dependencies
-        run: npm install
+        working-directory: .
+        run: pnpm install --frozen-lockfile
 
       # cargo fetch：让 tauri/插件源码进入 registry 缓存——tauri android init
       # 生成的 tauri.settings.gradle 引用本地缓存绝对路径，缓存缺失则 init 指向不存在目录。
@@ -129,12 +126,12 @@ jobs:
       - name: init Android project
         run: |
           ln -sf ../node_modules/.bin/tauri src-tauri/tauri
-          npx tauri android init --ci
+          pnpm exec tauri android init --ci
           # 启动图标：init 生成的是 Tauri 模板的默认图（gen/ 不入库，CI 每次现生成），
           # 必须紧接 init 用 tauri icon 覆盖成仓库里的图标（图标源在 src-tauri/icons/）
-          npx tauri icon src-tauri/icons/icon.manifest.json
+          pnpm exec tauri icon src-tauri/icons/icon.manifest.json
           # 图片代理走 127.0.0.1 明文 HTTP：release 需放行 loopback（research #31 换代理）
-          # 脚本对 cwd 不敏感，但用 GITHUB_WORKSPACE 绝对路径避免 working-directory 影响
+          # 脚本基于自身位置定位 app 目录，对 cwd 不敏感
           bash "$GITHUB_WORKSPACE/scripts/android-netsec.sh"
 
       - name: build Android APK
@@ -145,11 +142,11 @@ jobs:
           export BINDGEN_EXTRA_CLANG_ARGS_armv7_linux_androideabi="--sysroot=$NDK_SYSROOT -I$NDK_SYSROOT/usr/include/arm-linux-androideabi"
           export BINDGEN_EXTRA_CLANG_ARGS_i686_linux_android="--sysroot=$NDK_SYSROOT -I$NDK_SYSROOT/usr/include/i686-linux-android"
           export BINDGEN_EXTRA_CLANG_ARGS_x86_64_linux_android="--sysroot=$NDK_SYSROOT -I$NDK_SYSROOT/usr/include/x86_64-linux-android"
-          npx tauri android build --apk --ci
+          pnpm exec tauri android build --apk --ci
 
       # release APK 默认未签名，Android 无法直装，必须签名。用固定的发布密钥（secret
       # ANDROID_KEYSTORE_BASE64）：Android 只允许同签名的包覆盖安装，每次现生成密钥会
-      # 让 OTA 永远装不上。密钥生成与 secret 配置见 updater/README.md。
+      # 让 OTA 永远装不上。密钥生成与 secret 配置见 apps/updater/README.md。
       - name: sign APK
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -158,27 +155,30 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           test -n "$ANDROID_KEYSTORE_BASE64" || { echo "缺 secret ANDROID_KEYSTORE_BASE64" >&2; exit 1; }
-          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > mojuan-release.keystore
+          OUT="$GITHUB_WORKSPACE/build"
+          mkdir -p "$OUT"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$OUT/mojuan-release.keystore"
           VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
           APKSIGNER="$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)"
           "$APKSIGNER" sign \
-            --ks mojuan-release.keystore \
+            --ks "$OUT/mojuan-release.keystore" \
             --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
             --ks-key-alias "$ANDROID_KEY_ALIAS" \
             --key-pass env:ANDROID_KEY_PASSWORD \
-            --out "mojuan-$VERSION-android.apk" \
+            --out "$OUT/mojuan-$VERSION-android.apk" \
             "src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk"
-          rm -f mojuan-release.keystore
+          rm -f "$OUT/mojuan-release.keystore"
           echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
 
       # 客户端（src-tauri 的 ota 模块）要的清单：版本 + APK 的 sha256 + APK 文件名。
       # Worker 的 /android.json 读到它，把文件名改写成自己的下载路径后对外提供。
       - name: write Android update manifest
         run: |
-          SHA="$(sha256sum "mojuan-$APP_VERSION-android.apk" | cut -d' ' -f1)"
+          OUT="$GITHUB_WORKSPACE/build"
+          SHA="$(sha256sum "$OUT/mojuan-$APP_VERSION-android.apk" | cut -d' ' -f1)"
           printf '{"version":"%s","url":"mojuan-%s-android.apk","sha256":"%s"}\n' \
-            "$APP_VERSION" "$APP_VERSION" "$SHA" > android.json
-          cat android.json
+            "$APP_VERSION" "$APP_VERSION" "$SHA" > "$OUT/android.json"
+          cat "$OUT/android.json"
 
       - uses: softprops/action-gh-release@v2
         with:
@@ -186,8 +186,8 @@ jobs:
           name: Mojuan v${{ env.APP_VERSION }}
           draft: false
           files: |
-            desktop/mojuan-${{ env.APP_VERSION }}-android.apk
-            desktop/android.json
+            build/mojuan-${{ env.APP_VERSION }}-android.apk
+            build/android.json
 
   # iOS 模拟器 .app：真机 .ipa 需 Apple 开发者签名（项目暂无，与桌面 ad-hoc 同思路后置），
   # 先出可装进模拟器的 aarch64-sim 包（ditto 打包保留权限/符号链接）。
@@ -197,16 +197,15 @@ jobs:
       contents: write
     defaults:
       run:
-        working-directory: desktop
+        working-directory: apps/mojuan
     steps:
       - uses: actions/checkout@v7
 
-      - name: setup node
-        uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: lts/*
-          cache: 'npm'
-          cache-dependency-path: desktop/package-lock.json
+          cache: pnpm
 
       - name: install Rust with iOS targets
         uses: dtolnay/rust-toolchain@stable
@@ -215,11 +214,11 @@ jobs:
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
-        with:
-          workspaces: './desktop -> target'
 
+      # 安装走 workspace 根，其余步骤在 app 目录
       - name: install frontend dependencies
-        run: npm install
+        working-directory: .
+        run: pnpm install --frozen-lockfile
 
       - name: fetch Rust dependencies
         run: cargo fetch --manifest-path src-tauri/Cargo.toml
@@ -232,21 +231,23 @@ jobs:
       - name: init iOS project
         run: |
           ln -sf ../node_modules/.bin/tauri src-tauri/tauri
-          npx tauri ios init --ci
+          pnpm exec tauri ios init --ci
           # 启动图标：init 生成的是 Tauri 模板的默认图（gen/ 不入库，CI 每次现生成），
           # 必须紧接 init 用 tauri icon 覆盖成仓库里的图标（图标源在 src-tauri/icons/）
-          npx tauri icon src-tauri/icons/icon.manifest.json
+          pnpm exec tauri icon src-tauri/icons/icon.manifest.json
 
       - name: build iOS simulator app
-        run: npx tauri ios build --target aarch64-sim --ci
+        run: pnpm exec tauri ios build --target aarch64-sim --ci
 
       # .app 的名字取自 productName（tauri.ios.conf.json 是「墨卷」），这里按产物目录里的
       # 实际名字打包，zip 自身保持 ASCII 名（制品地址要进 release 与更新清单）。
       - name: package .app bundle
         run: |
+          OUT="$GITHUB_WORKSPACE/build"
+          mkdir -p "$OUT"
           VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
           APP="$(ls -d src-tauri/gen/apple/build/arm64-sim/*.app)"
-          ditto -c -k --sequesterRsrc --keepParent "$APP" "mojuan-$VERSION-ios-simulator.app.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT/mojuan-$VERSION-ios-simulator.app.zip"
           echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - uses: softprops/action-gh-release@v2
@@ -254,4 +255,4 @@ jobs:
           tag_name: app-v${{ env.APP_VERSION }}
           name: Mojuan v${{ env.APP_VERSION }}
           draft: false
-          files: desktop/mojuan-${{ env.APP_VERSION }}-ios-simulator.app.zip
+          files: build/mojuan-${{ env.APP_VERSION }}-ios-simulator.app.zip

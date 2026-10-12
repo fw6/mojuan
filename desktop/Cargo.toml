@@ -1,3 +1,0 @@
-[workspace]
-members = ["src-tauri", "crates/mojuan-core", "crates/tauri-plugin-mojuan-render", "crates/tauri-plugin-mojuan-update"]
-resolver = "2"

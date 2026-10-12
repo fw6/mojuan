@@ -1,0 +1,13 @@
+{
+  "name": "@mojuan/root",
+  "private": true,
+  "packageManager": "pnpm@12.11.2",
+  "scripts": {
+    "dev": "pnpm --filter @mojuan/app tauri dev",
+    "build": "pnpm --filter @mojuan/app build",
+    "tauri": "pnpm --filter @mojuan/app tauri",
+    "check": "pnpm --filter @mojuan/app exec tsc --noEmit",
+    "test": "pnpm -r test",
+    "deploy": "pnpm --filter @mojuan/updater deploy"
+  }
+}

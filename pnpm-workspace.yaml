@@ -1,0 +1,20 @@
+packages:
+  - apps/*
+
+# crate 图与 npm 图由一次 pnpm install 一起解析，crate 归档进 .pnpm/crates 供 cargo 离线构建。
+cargo:
+  enabled: true
+
+registries:
+  https://rsproxy.cn/index/:
+    ecosystem: cargo
+
+# 这两个依赖的构建脚本必须跑（esbuild 装二进制、workerd 装运行时），pnpm 12 默认跳过所有构建脚本。
+allowBuilds:
+  esbuild: true
+  workerd: true
+
+# jsdom 是 apps/mojuan 的测试依赖，但用它的是 crates/mojuan-core/src/js/ 里的源文档测试
+#（由那个包的 vitest 跨包加载）。pnpm 默认不让包目录之外解析到别人的依赖，所以提到仓库根。
+publicHoistPattern:
+  - jsdom
