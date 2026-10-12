@@ -1,0 +1,52 @@
+DESIGN.md
+  s_d65deceb794339::t_a2d9932423533c 258
+desktop/crates/tauri-plugin-mojuan-render/src/desktop.rs
+  s_d65deceb794339::t_27cf6ff0359136 1
+desktop/package.json
+  s_d65deceb794339::t_84311fd4436782 4
+scripts/check-android.sh
+  s_d65deceb794339::t_7f049732905924 9
+desktop/package-lock.json
+  s_d65deceb794339::t_a45489fabedf6f 3,9
+desktop/src-tauri/tauri.conf.json
+  s_d65deceb794339::t_006db91f7aa4b0 4
+desktop/Cargo.lock
+  s_d65deceb794339::t_a45489fabedf6f 2405-2429,2432
+desktop/src-tauri/Cargo.toml
+  s_d65deceb794339::t_65661c4e69cd76 2
+  s_d65deceb794339::t_9b690f57889dd0 14
+  s_d65deceb794339::t_45b95af7bb871c 3
+docs/agents/tauri-development.md
+  s_d65deceb794339::t_8d23e27dfaf441 131-142
+desktop/src-tauri/examples/render_probe.rs
+  s_d65deceb794339::t_956582324cd5df 12,14
+desktop/src-tauri/tauri.macos.conf.json
+  s_d65deceb794339::t_9517c0bb01bf94 3
+.github/workflows/release.yml
+  s_d65deceb794339::t_a13bcc66f738fb 236-238,243-244,248-249
+  s_d65deceb794339::t_b70ed412013c88 133-135
+desktop/crates/mojuan-core/Cargo.toml
+  s_d65deceb794339::t_6094af4fa6210f 3
+desktop/src-tauri/tauri.ios.conf.json
+  s_d65deceb794339::t_334231f48ec843 1-4
+desktop/src-tauri/src/main.rs
+  s_d65deceb794339::t_9e51ef36c41ae6 5
+desktop/src-tauri/tauri.android.conf.json
+  s_d65deceb794339::t_b328d1ba6625b1 1-4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.45-trip",
+  "base_commit_sha": "8fd3f1b152170d3adbae1643792b1277c1b36e4e",
+  "prompts": {},
+  "sessions": {
+    "s_d65deceb794339": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_ac012f8d-c63d-4c60-9706-54563e81762f",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
