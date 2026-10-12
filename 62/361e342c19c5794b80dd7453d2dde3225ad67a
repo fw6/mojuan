@@ -1,0 +1,81 @@
+apps/mojuan/src-tauri/tauri.conf.json
+  s_16759e9ae56874::t_af1d92cd0ad166 7-9
+.github/workflows/release.yml
+  s_16759e9ae56874::t_fd9ada0f5348b0 11,47-49,52,63,70,85,89-90,93,109,111-112,129,132,134,145,149,158-160,164,168,170,177-178,180-181,189-190,200,204-205,208,218,220-221,234,237,240,246-247,250,258
+.gitignore
+  s_16759e9ae56874::t_feb577bcab2af8 6,8-9,11,26,28-30,32,35-36
+crates/mojuan-core/src/crawler/models.rs
+  s_16759e9ae56874::t_ab9a6abbf381a1 1
+apps/mojuan/vite.config.ts
+  s_16759e9ae56874::t_62ea7355cb1d9d 41-45
+apps/mojuan/src-tauri/Cargo.toml
+  s_16759e9ae56874::t_8eda597c5472d9 27-29
+Cargo.toml
+  s_16759e9ae56874::t_83d2c3f8cc2f38 1-11
+pnpm-workspace.yaml
+  s_16759e9ae56874::t_2f103682bcf6ce 1-15
+  s_16759e9ae56874::t_4299ebe7cc5981 16-20
+apps/updater/test/manifest.test.js
+  s_16759e9ae56874::t_b8487e44af47f3 292
+apps/updater/package.json
+  s_16759e9ae56874::t_d829737337a89e 2
+.cargo/config.toml
+  s_16759e9ae56874::t_ebdffaf35f33ca 6-11
+  s_16759e9ae56874::t_208254edea6a80 1-3
+package.json
+  s_16759e9ae56874::t_87c695fa81d642 1-13
+apps/mojuan/scripts/audit-contrast.mjs
+  s_16759e9ae56874::t_d73c725f081f25 5-7
+.github/workflows/ci.yml
+  s_16759e9ae56874::t_b84cc4a1237fbc 1-2,23-24,28,34-37
+crates/tauri-plugin-mojuan-update/src/lib.rs
+  s_16759e9ae56874::t_64e8496f63a981 152
+  s_16759e9ae56874::t_9eb04607ccea1f 150-151,153
+apps/mojuan/scripts/verify-online-reader-network.mjs
+  s_16759e9ae56874::t_427ef9565b44e5 6
+crates/mojuan-core/src/js/source-harness.js
+  s_16759e9ae56874::t_e4d8f4c431fb05 11-14
+crates/mojuan-core/examples/source_schema.rs
+  s_16759e9ae56874::t_c710dac8962791 6
+apps/mojuan/scripts/probe-app.mjs
+  s_16759e9ae56874::t_3c1d22d6dedbd0 6-8
+DESIGN.md
+  s_16759e9ae56874::t_d70c4eeb8a7345 257-258
+apps/mojuan/scripts/verify-offline-reading.mjs
+  s_16759e9ae56874::t_320b863e835f29 6
+scripts/check-android.sh
+  s_16759e9ae56874::t_6bd097770c1246 39
+crates/mojuan-core/src/lib.rs
+  s_16759e9ae56874::t_5b8467f83bc6ec 5
+.zcodeignore
+  s_16759e9ae56874::t_75fd9c7ea8e87c 6,8-9,11,26,28-30,32,35-36
+apps/mojuan/src-tauri/examples/render_probe.rs
+  s_16759e9ae56874::t_617d5d671742f6 3
+AGENTS.md
+  s_16759e9ae56874::t_4dbc94dc9a71db 3,5,7-16,21-23
+apps/mojuan/.gitignore
+  s_16759e9ae56874::t_4cabc872165304 1-6
+scripts/android-netsec.sh
+  s_16759e9ae56874::t_f5f5d374fa4c87 8
+crates/mojuan-core/tests/live_smoke.rs
+  s_16759e9ae56874::t_01ba76724149ef 239
+apps/mojuan/package.json
+  s_16759e9ae56874::t_6d753163e5762e 18-36
+  s_16759e9ae56874::t_549c34a3976f3e 2
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.49-trip",
+  "base_commit_sha": "62361e342c19c5794b80dd7453d2dde3225ad67a",
+  "prompts": {},
+  "sessions": {
+    "s_16759e9ae56874": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_ace295f9-0218-4373-955b-6ca505653696",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
