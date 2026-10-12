@@ -8,6 +8,7 @@
     "test": "node --test test/*.test.js"
   },
   "devDependencies": {
+    "@mojuan/app": "workspace:*",
     "wrangler": "^4.142.0"
   }
 }

@@ -24,6 +24,12 @@
 - `target/`、`.pnpm/`、`build/` 由仓库根生成，忽略规则写在根 `.gitignore`（`apps/mojuan/.gitignore` 只管该包特有的 `src-tauri/gen` 与 `src-tauri/tauri`）。
 - 发布产物统一写进根 `build/`（`release.yml` 的移动作业从那里上传），不进源码目录。
 
+## 应用版本
+
+- 版本只写在仓库根 `Cargo.toml` 的 `[workspace.package].version`；`apps/mojuan/src-tauri` 与 `crates/mojuan-core` 用 `version.workspace = true` 继承。
+- `tauri.conf.json` 不写 `version`：tauri 的 CLI、代码生成（`tauri-codegen` 回落到 `CARGO_PKG_VERSION`）与 `tauri-action` 的 `__VERSION__` 都回落到 Cargo 的包版本，所以 macOS 包名、`package_info().version`（Android OTA 的版本比对用它）与 release 的 tag 名都跟着走。
+- 发布流程要版本时用 `node scripts/app-version.mjs`（读 `cargo metadata`），不要从别的文件里抄。
+
 ## 命令
 
 - 命令速查见根 `AGENTS.md`（核心命令一节）。

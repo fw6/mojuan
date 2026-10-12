@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 fn sources_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("src/js/sources")
+    PathBuf::from(mojuan_core::SOURCE_DOC_DIR)
 }
 
 fn fixtures_dir() -> PathBuf {

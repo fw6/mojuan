@@ -259,9 +259,21 @@ importers:
 
   apps/updater:
     devDependencies:
+      '@mojuan/app':
+        specifier: workspace:*
+        version: link:../mojuan
       wrangler:
         specifier: ^4.142.0
         version: 4.149.0
+
+  crates/mojuan-core:
+    devDependencies:
+      jsdom:
+        specifier: ^29.1.1
+        version: 29.1.1
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.11(jsdom@29.1.1)(vite@7.3.7(jiti@2.7.0)(lightningcss@1.32.0))
 
 packages:
 

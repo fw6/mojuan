@@ -1,8 +1,10 @@
 {
   "name": "@mojuan/app",
   "private": true,
-  "version": "1.6.3",
   "type": "module",
+  "exports": {
+    "./app-facts": "./app-facts.js"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",

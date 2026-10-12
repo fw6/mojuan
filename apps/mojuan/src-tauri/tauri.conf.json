@@ -1,7 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "mojuan",
-  "version": "1.6.3",
   "identifier": "io.github.fw6.mojuan",
   "build": {
     "beforeDevCommand": "pnpm run dev",

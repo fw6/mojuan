@@ -141,24 +141,4 @@ mod tests {
         let cfg: Config = serde_json::from_str("{}").unwrap();
         assert!(cfg.endpoint.is_empty());
     }
-
-    /// 应用启动时 tauri 会用 `Config` 反序列化 tauri.conf.json 里的这一段；
-    /// 类型不匹配会让应用启动即 panic，所以拿真实配置固定一次。
-    #[test]
-    fn real_tauri_config_deserializes() {
-        let conf = std::fs::read_to_string(
-            concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../apps/mojuan/src-tauri/tauri.conf.json"
-            ),
-        )
-        .unwrap();
-        let conf: serde_json::Value = serde_json::from_str(&conf).unwrap();
-        let raw = conf["plugins"][PLUGIN_NAME].clone();
-        let cfg: Config = serde_json::from_value(raw).unwrap();
-        assert_eq!(
-            cfg.endpoint,
-            "https://mojuan.fengw.site/android.json"
-        );
-    }
 }

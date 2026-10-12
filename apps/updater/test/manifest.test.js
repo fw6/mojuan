@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { updaterPubkey } from "@mojuan/app/app-facts";
 import worker, { assetRefFromUrl, buildAndroidManifest, buildManifest } from "../src/index.js";
 
 const ORIGIN = "https://mojuan.example.workers.dev";
@@ -287,14 +288,11 @@ test("下载代理只放行该版本里真实存在的制品", async () => {
     assert.equal(res.status, 404);
 });
 
-test("tauri.conf.json 里的 pubkey 就是给这些制品签名的那个密钥", () => {
-    const conf = JSON.parse(
-        readFileSync(new URL("../../mojuan/src-tauri/tauri.conf.json", import.meta.url), "utf8"),
-    );
+test("应用配置里的 pubkey 就是给这些制品签名的那个密钥", () => {
     // pubkey 与 .sig 都是「minisign 文本的 base64」，key id 在第二层二进制的第 2..10 字节
     const decode = (base64) =>
         Buffer.from(Buffer.from(base64, "base64").toString("utf8").split("\n")[1], "base64");
-    const pubBlob = decode(conf.plugins.updater.pubkey);
+    const pubBlob = decode(updaterPubkey);
     assert.equal(pubBlob.subarray(0, 2).toString(), "Ed");
 
     const keyId = pubBlob.subarray(2, 10).toString("hex");

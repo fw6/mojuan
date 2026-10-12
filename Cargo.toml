@@ -9,3 +9,9 @@ members = [
 # Cargo.toml 跑 cargo metadata，排除掉才不会被本机留下的检出卡住整次安装。
 exclude = [".scratch"]
 resolver = "2"
+
+# 应用版本只写在这里：两个 crate 用 version.workspace = true 继承，tauri.conf.json 不写
+# version（tauri 的 CLI、代码生成与 tauri-action 都回落到 Cargo 的包版本），
+# 发布流程用 scripts/app-version.mjs 取。
+[workspace.package]
+version = "1.6.3"

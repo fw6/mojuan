@@ -158,7 +158,7 @@ jobs:
           OUT="$GITHUB_WORKSPACE/build"
           mkdir -p "$OUT"
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$OUT/mojuan-release.keystore"
-          VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          VERSION="$(node "$GITHUB_WORKSPACE/scripts/app-version.mjs")"
           APKSIGNER="$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)"
           "$APKSIGNER" sign \
             --ks "$OUT/mojuan-release.keystore" \
@@ -245,7 +245,7 @@ jobs:
         run: |
           OUT="$GITHUB_WORKSPACE/build"
           mkdir -p "$OUT"
-          VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          VERSION="$(node "$GITHUB_WORKSPACE/scripts/app-version.mjs")"
           APP="$(ls -d src-tauri/gen/apple/build/arm64-sim/*.app)"
           ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT/mojuan-$VERSION-ios-simulator.app.zip"
           echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"

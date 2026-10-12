@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 /// 把仓库里的全部源文档同步进注册表（内置只有 webtoons，其余 8 个要从文档目录装载）。
 fn sync_all() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/js/sources");
+    let dir = Path::new(mojuan_core::SOURCE_DOC_DIR);
     let mut sources: Vec<SyncSource> = std::fs::read_dir(&dir)
         .expect("源文档目录")
         .filter_map(|e| e.ok())

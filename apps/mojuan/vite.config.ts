@@ -37,11 +37,11 @@ export default defineConfig(async () => ({
     },
   },
 
-  // 测试（#10 定案：vitest + jsdom；seam 测试走显式 import，不用 globals。
-  // 源文档测试（ADR-0002 双轨的 JS 侧）：驱动与文档在 crates/mojuan-core/src/js/，fixture 走 fs 读取）
+  // 测试（#10 定案：vitest + jsdom；seam 测试走显式 import，不用 globals）。
+  // 源文档的 JS 测试在 crates/mojuan-core 自己的 vitest 里跑（见那个包的 vitest.config.js）。
   test: {
     environment: "jsdom",
     setupFiles: ["src/test-setup.ts"],
-    include: ["src/**/*.test.{ts,tsx}", "../../crates/mojuan-core/src/js/**/*.test.js"],
+    include: ["src/**/*.test.{ts,tsx}"],
   },
 }));

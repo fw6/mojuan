@@ -10,6 +10,12 @@ pub mod js;
 pub mod native;
 mod util;
 
+/// 仓库里源文档所在目录（内置文档与回归数据）。
+///
+/// 打包进应用的是文档内容（`include_str!`），这个路径只给仓库内的工具与测试用：渲染通道
+/// 探针、live 冒烟与源文档测试都从这里取，路径只写一处。
+pub const SOURCE_DOC_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/js/sources");
+
 /// 核心版本字符串。
 pub fn mojuan_version() -> String {
     "mojuan-core-rust".to_string()
