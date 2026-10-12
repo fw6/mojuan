@@ -130,6 +130,9 @@ jobs:
         run: |
           ln -sf ../node_modules/.bin/tauri src-tauri/tauri
           npx tauri android init --ci
+          # 启动图标：init 生成的是 Tauri 模板的默认图（gen/ 不入库，CI 每次现生成），
+          # 必须紧接 init 用 tauri icon 覆盖成仓库里的图标（图标源在 src-tauri/icons/）
+          npx tauri icon src-tauri/icons/icon.manifest.json
           # 图片代理走 127.0.0.1 明文 HTTP：release 需放行 loopback（research #31 换代理）
           # 脚本对 cwd 不敏感，但用 GITHUB_WORKSPACE 绝对路径避免 working-directory 影响
           bash "$GITHUB_WORKSPACE/scripts/android-netsec.sh"
@@ -230,15 +233,20 @@ jobs:
         run: |
           ln -sf ../node_modules/.bin/tauri src-tauri/tauri
           npx tauri ios init --ci
+          # 启动图标：init 生成的是 Tauri 模板的默认图（gen/ 不入库，CI 每次现生成），
+          # 必须紧接 init 用 tauri icon 覆盖成仓库里的图标（图标源在 src-tauri/icons/）
+          npx tauri icon src-tauri/icons/icon.manifest.json
 
       - name: build iOS simulator app
         run: npx tauri ios build --target aarch64-sim --ci
 
+      # .app 的名字取自 productName（tauri.ios.conf.json 是「墨卷」），这里按产物目录里的
+      # 实际名字打包，zip 自身保持 ASCII 名（制品地址要进 release 与更新清单）。
       - name: package .app bundle
         run: |
           VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
-          cd src-tauri/gen/apple/build/arm64-sim
-          ditto -c -k --sequesterRsrc --keepParent mojuan.app "$OLDPWD/mojuan-$VERSION-ios-simulator.app.zip"
+          APP="$(ls -d src-tauri/gen/apple/build/arm64-sim/*.app)"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "mojuan-$VERSION-ios-simulator.app.zip"
           echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - uses: softprops/action-gh-release@v2

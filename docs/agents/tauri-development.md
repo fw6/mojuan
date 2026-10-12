@@ -128,6 +128,18 @@ feature 且只在 `wkwebview`（macOS）里用到，在别的平台上不产生�
 `src/styles/beui.css` 的 `data-chrome` 段据此让 `--sidebar` 与 `body` 透明，`src/lib/chrome.ts`
 给组件读这个标记。谁透明谁实底、材质怎么跟随主题，见 `DESIGN.md` 的「窗口材质」。
 
+## 应用名（productName）
+
+基座 `tauri.conf.json` 的 `productName` 是 `mojuan`，macOS / Android / iOS 的平台配置各自覆盖成 `墨卷`（`tauri.macos.conf.json` / `tauri.android.conf.json` / `tauri.ios.conf.json`，平台文件按 JSON Merge Patch 合进基座，标量直接覆盖）。三个落点：
+
+- macOS：`CFBundleDisplayName` / `CFBundleName`（bundle 名、Dock、访达、「关于」）与菜单栏最左侧那条应用菜单——tauri 的默认菜单标题取 `PackageInfo.name`，它由构建脚本按**已合并**的配置生成，所以平台覆盖对 `cargo build` 也生效，不必只在打包时才有。
+- Android：`res/values/strings.xml` 的 `app_name` / `main_activity_title`，由 `tauri android init` 现生成（`gen/` 不入库，改了 productName 要删掉 `gen/android` 重新 init）。
+- iOS：`gen/apple/project.yml` 的 `PRODUCT_NAME`（`CFBundleName` 取它），Xcode 工程名与 target 名仍用 Cargo 包名，保持 ASCII。
+
+Windows 与 Linux 用基座的 `mojuan`：deb / rpm 的包名直接取 productName（tauri-bundler 走 `heck::AsKebabCase`），非 ASCII 会被 dpkg 判为非法包名；Windows 的 MSI 显示名走安装包代码页，中文有乱码风险。
+
+`tauri dev` 里 Dock 图标下方那行字取自**可执行文件**（未打包的进程在 LaunchServices 里就是文件名），所以 `src-tauri` 的 Cargo 包名是 `mojuan`，不是脚手架留下的 `desktop`；菜单栏那条仍是 productName（`mojuan`）。
+
 ## 坑（Gotchas）
 
 1. **Tauri 同步命令在主线程执行**：阻塞式 reqwest 必须放 async 命令 + `tauri::async_runtime::spawn_blocking`，否则冻结 UI。

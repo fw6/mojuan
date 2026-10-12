@@ -897,31 +897,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "desktop"
-version = "1.6.2"
-dependencies = [
- "bytes",
- "http-body-util",
- "hyper",
- "hyper-util",
- "mojuan-core",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-fs",
- "tauri-plugin-mcp-bridge",
- "tauri-plugin-mojuan-render",
- "tauri-plugin-mojuan-update",
- "tauri-plugin-opener",
- "tauri-plugin-store",
- "tauri-plugin-updater",
- "tokio",
- "urlencoding",
-]
-
-[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2428,8 +2403,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "mojuan"
+version = "1.6.3"
+dependencies = [
+ "bytes",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "mojuan-core",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-fs",
+ "tauri-plugin-mcp-bridge",
+ "tauri-plugin-mojuan-render",
+ "tauri-plugin-mojuan-update",
+ "tauri-plugin-opener",
+ "tauri-plugin-store",
+ "tauri-plugin-updater",
+ "tokio",
+ "urlencoding",
+]
+
+[[package]]
 name = "mojuan-core"
-version = "1.6.2"
+version = "1.6.3"
 dependencies = [
  "base64 0.22.1",
  "percent-encoding",

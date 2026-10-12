@@ -6,7 +6,7 @@
 # sysroot，ring/cc 需要 NDK 的 clang 在 PATH 上（宿主上直接 cargo check 会报
 # 「failed to find tool aarch64-linux-android-clang」）。
 #
-# 用法：scripts/check-android.sh [cargo check 的额外参数，如 -p desktop]
+# 用法：scripts/check-android.sh [cargo check 的额外参数，如 -p mojuan]
 set -euo pipefail
 
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"

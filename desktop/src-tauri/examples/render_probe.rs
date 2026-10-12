@@ -9,9 +9,9 @@
 //!       同进程跑 detail → images（验证进程内章节 URL 缓存与全链路），打印摘要。
 //!
 //! 启动最小 Tauri 应用：主窗口立即隐藏（探针无界面），`ExitRequested` 仅在探针显式
-//! `exit(code)` 时放行；渲染通道与正式应用同一实现（`desktop_lib::render`）。
+//! `exit(code)` 时放行；渲染通道与正式应用同一实现（`mojuan_lib::render`）。
 
-use desktop_lib::render;
+use mojuan_lib::render;
 use tauri::Manager;
 
 fn main() {

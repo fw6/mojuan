@@ -1,4 +1,4 @@
-//! 桌面端占位：桌面渲染通道由 src-tauri 的隐藏窗口实现（`desktop_lib::render`）。
+//! 桌面端占位：桌面渲染通道由 src-tauri 的隐藏窗口实现（`mojuan_lib::render`）。
 
 use tauri::{plugin::PluginApi, AppHandle, Runtime};
 
