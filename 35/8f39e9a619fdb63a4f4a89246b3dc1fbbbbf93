@@ -1,0 +1,39 @@
+desktop/crates/mojuan-core/src/native/download_index.rs
+  s_38efb48a1e0987::t_2b56e29eb4f51b 73-78
+  s_38efb48a1e0987::t_5f7fddd9c176eb 111
+desktop/src-tauri/src/img_proxy.rs
+  s_38efb48a1e0987::t_14dbaca67ff64a 163,174-184
+  s_38efb48a1e0987::t_dde9c74e8918e4 241-246,248-250
+  s_38efb48a1e0987::t_972e2b3c1d8e41 102-103,105-107
+  s_38efb48a1e0987::t_48685377668646 23-24,38-42,56,59-60,71,75-80,87,95,132-135
+  s_38efb48a1e0987::t_6598d2f6af840b 37
+  s_38efb48a1e0987::t_7971e4f2eb1d3e 362,384,402,414-415,440-492,500-501
+  s_38efb48a1e0987::t_252ebc215f217d 321-324,334
+  s_38efb48a1e0987::t_edd6d94cbfbf74 129-131,136
+desktop/src-tauri/src/app.rs
+  s_38efb48a1e0987::t_c56a9eac164615 109,113
+  s_38efb48a1e0987::t_01ef4602a6603a 11
+desktop/src-tauri/src/commands.rs
+  s_38efb48a1e0987::t_d3b92becffbe71 174,178
+  s_38efb48a1e0987::t_46160928246ef2 175
+desktop/src-tauri/src/lib.rs
+  s_38efb48a1e0987::t_5541923c194c09 32-33
+  s_38efb48a1e0987::t_193449d92c6a70 34-35
+  s_38efb48a1e0987::t_44f746c2f88c23 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.45-trip",
+  "base_commit_sha": "358f39e9a619fdb63a4f4a89246b3dc1fbbbbf93",
+  "prompts": {},
+  "sessions": {
+    "s_38efb48a1e0987": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_33d3bf2c-a5fe-4483-bb51-d87b72622ad3",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
