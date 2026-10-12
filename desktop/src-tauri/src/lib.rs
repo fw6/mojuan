@@ -1,6 +1,6 @@
 //! 墨卷桌面端后端：命令层（`commands` / `downloads`）、应用装配（`app`）与各运行时模块。
 
-use std::sync::OnceLock;
+use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 
 /// 本机图片代理（research #31 换代理：自用 + Android 优先）。
 mod img_proxy;
@@ -29,8 +29,10 @@ static APP_CACHE_DIR: OnceLock<String> = OnceLock::new();
 /// 本机图片代理端口（装配时绑定 127.0.0.1:0 后填充，前端经 img_proxy_port 读取）。
 static IMG_PROXY_PORT: OnceLock<u16> = OnceLock::new();
 
-/// 用户配置的下载目录（首次查询时由前端 init 传入，代理按 source/comicId 读下载索引）。
-static DOWNLOAD_DIR: OnceLock<String> = OnceLock::new();
+/// 用户配置的下载目录（前端读取设置后写入）。代理持有同一个 Arc 并每次请求现读，
+/// 所以设置页改了目录即时生效。
+static DOWNLOAD_DIR: LazyLock<Arc<Mutex<String>>> =
+    LazyLock::new(|| Arc::new(Mutex::new(String::new())));
 
 /// 结果缓存条目的保留期（秒）：超过此时长未更新的条目在装配时清理（常用条目每次抓取刷新）。
 const RESULT_CACHE_MAX_AGE_SECS: u64 = 7 * 24 * 60 * 60;

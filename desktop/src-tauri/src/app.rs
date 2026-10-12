@@ -8,6 +8,7 @@ use crate::{
     commands, downloads, img_proxy, APP_CACHE_DIR, DOWNLOAD_DIR, IMG_PROXY_PORT,
     RESULT_CACHE_MAX_AGE_SECS,
 };
+use std::sync::Arc;
 use std::time::Duration;
 use tauri::Manager;
 
@@ -105,10 +106,11 @@ fn setup(app: &mut tauri::App) {
     ota::init(app.handle());
     // 本机图片代理（research #31 换代理）：绑定 127.0.0.1 随机端口，端口经
     // img_proxy_port 暴露给前端；取代自定义 scheme（Android 30s 拦截上限根因）。
+    // 下载目录与前端共享：设置由前端读，代理按请求现取（离线阅读查下载索引）。
     if let Ok((listener, port)) = img_proxy::bind_img_proxy() {
         let _ = IMG_PROXY_PORT.set(port);
         let cache_dir = APP_CACHE_DIR.get().cloned().unwrap_or_default();
-        let download_dir = DOWNLOAD_DIR.get().cloned().unwrap_or_default();
+        let download_dir = Arc::clone(&DOWNLOAD_DIR);
         tauri::async_runtime::spawn(async move {
             img_proxy::serve(listener, cache_dir, download_dir).await;
         });

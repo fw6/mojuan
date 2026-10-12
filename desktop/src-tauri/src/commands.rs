@@ -171,8 +171,9 @@ pub fn img_proxy_port() -> u16 {
     IMG_PROXY_PORT.get().copied().unwrap_or(0)
 }
 
-/// 初始化代理的下载目录（前端读取 settings 后调用，wayfinder #31：离线也传 url）。
+/// 告诉代理当前的下载目录（前端读取 settings 后调用，wayfinder #31：离线也传 url）。
+/// 代理每次请求现读，改设置之后不用重启。
 #[tauri::command]
 pub fn img_proxy_set_download_dir(dir: String) {
-    let _ = DOWNLOAD_DIR.set(dir);
+    *DOWNLOAD_DIR.lock().unwrap() = dir;
 }

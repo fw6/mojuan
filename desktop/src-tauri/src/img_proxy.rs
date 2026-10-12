@@ -20,6 +20,8 @@ use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use std::convert::Infallible;
 use std::net::{Ipv4Addr, SocketAddr};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 
 /// 绑定 127.0.0.1 随机端口，返回 (std listener, port)。绑定不依赖 tokio 上下文
@@ -32,7 +34,12 @@ pub fn bind_img_proxy() -> std::io::Result<(std::net::TcpListener, u16)> {
 }
 
 /// 常驻 accept 循环：每连接一个 task，取图放 blocking 池后返回。
-pub async fn serve(std_listener: std::net::TcpListener, cache_dir: String, download_dir: String) {
+/// `download_dir` 与调用方共享、每次请求现读：它由前端在窗口起来之后才送过来，之后还可能改。
+pub async fn serve(
+    std_listener: std::net::TcpListener,
+    cache_dir: String,
+    download_dir: Arc<Mutex<String>>,
+) {
     let listener = match TcpListener::from_std(std_listener) {
         Ok(l) => l,
         Err(e) => {
@@ -46,10 +53,11 @@ pub async fn serve(std_listener: std::net::TcpListener, cache_dir: String, downl
             Err(_) => continue,
         };
         let cache_dir = cache_dir.clone();
-        let download_dir = download_dir.clone();
+        let download_dir = Arc::clone(&download_dir);
         tokio::spawn(async move {
             let io = TokioIo::new(stream);
-            let svc = service_fn(move |req| handle(req, cache_dir.clone(), download_dir.clone()));
+            let svc =
+                service_fn(move |req| handle(req, cache_dir.clone(), Arc::clone(&download_dir)));
             if let Err(e) = http1::Builder::new().serve_connection(io, svc).await {
                 eprintln!("img proxy connection error: {e}");
             }
@@ -60,20 +68,23 @@ pub async fn serve(std_listener: std::net::TcpListener, cache_dir: String, downl
 async fn handle(
     req: Request<Incoming>,
     cache_dir: String,
-    download_dir: String,
+    download_dir: Arc<Mutex<String>>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     let uri = req.uri().to_string();
     // blocking 取图（reqwest + 磁盘 IO）挪到 blocking 池，不占 tokio worker
-    let resp = tokio::task::spawn_blocking(move || handle_proxied(&uri, &cache_dir, &download_dir))
-        .await
-        .unwrap_or_else(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR));
+    let resp = tokio::task::spawn_blocking(move || {
+        let dir = download_dir.lock().unwrap().clone();
+        handle_proxied(&uri, &cache_dir, &dir)
+    })
+    .await
+    .unwrap_or_else(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR));
     Ok(resp)
 }
 
 /// 解析请求 URI（`/img?url=..&ref=..&source=..&comicId=..` 或 `/img?path=..`）→ 响应。
 /// 优先级：
 ///   1) source+comicId+url → 读下载索引（命中直接读下载文件）
-///   2) path → 读本地绝对路径（旧数据兼容）
+///   2) path → 读本地文件（相对路径按下载目录解析）
 ///   3) url → 走缓存取图（在线阅读）
 fn handle_proxied(uri: &str, cache_dir: &str, download_dir: &str) -> Response<Full<Bytes>> {
     let (url, referer, path, source, comic_id) = parse_img_query(uri);
@@ -81,16 +92,19 @@ fn handle_proxied(uri: &str, cache_dir: &str, download_dir: &str) -> Response<Fu
     // 1) 离线阅读：source+comicId+url → 查下载索引
     if !source.is_empty() && !comic_id.is_empty() && !url.is_empty() && !download_dir.is_empty() {
         if let Some(file_path) = download_index::find_downloaded_file(download_dir, &source, &comic_id, &url) {
-            if let Some(resp) = local_file_response(file_path.to_str().unwrap_or("")) {
+            if let Some(resp) = local_file_response(&file_path) {
                 return resp;
             }
         }
         // 未命中索引 → 回落到缓存
     }
 
-    // 2) 旧数据兼容：绝对路径直接读
+    // 2) 本地文件：绝对路径直接用；相对路径（下载清单给的是 `chapter_<n>/<file>`，
+    //    相对这部作品的下载目录）按 source+comicId 定位
     if !path.is_empty() {
-        if let Some(resp) = local_file_response(&path) {
+        if let Some(resp) =
+            local_file_response(&resolve_local_path(&path, download_dir, &source, &comic_id))
+        {
             return resp;
         }
         if url.is_empty() {
@@ -109,6 +123,17 @@ fn handle_proxied(uri: &str, cache_dir: &str, download_dir: &str) -> Response<Fu
             .body(Full::new(Bytes::from(bytes)))
             .unwrap_or_else(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR)),
         Err(_) => error_response(StatusCode::BAD_GATEWAY),
+    }
+}
+
+/// 请求里的本地文件路径 → 磁盘路径：绝对路径直接用；相对路径按 `<下载目录>/<source>/<comicId>`
+/// 拼接（下载清单给的是相对这部作品目录的 `chapter_<n>/<file>`）。
+fn resolve_local_path(path: &str, download_dir: &str, source: &str, comic_id: &str) -> PathBuf {
+    let p = Path::new(path);
+    if p.is_absolute() || download_dir.is_empty() {
+        p.to_path_buf()
+    } else {
+        download_index::resolve_downloaded_path(download_dir, source, comic_id, path)
     }
 }
 
@@ -135,7 +160,7 @@ fn parse_img_query(uri: &str) -> (String, String, String, String, String) {
     (url, referer, path, source, comic_id)
 }
 
-fn local_file_response(path: &str) -> Option<Response<Full<Bytes>>> {
+fn local_file_response(path: &Path) -> Option<Response<Full<Bytes>>> {
     let bytes = std::fs::read(path).ok()?;
     Some(
         Response::builder()
@@ -146,18 +171,17 @@ fn local_file_response(path: &str) -> Option<Response<Full<Bytes>>> {
     )
 }
 
-fn content_type_for(path: &str) -> &'static str {
-    let lower = path.to_ascii_lowercase();
-    if lower.ends_with(".png") {
-        "image/png"
-    } else if lower.ends_with(".webp") {
-        "image/webp"
-    } else if lower.ends_with(".gif") {
-        "image/gif"
-    } else if lower.ends_with(".jpeg") || lower.ends_with(".jpg") {
-        "image/jpeg"
-    } else {
-        "application/octet-stream"
+fn content_type_for(path: &Path) -> &'static str {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase());
+    match ext.as_deref() {
+        Some("png") => "image/png",
+        Some("webp") => "image/webp",
+        Some("gif") => "image/gif",
+        Some("jpeg") | Some("jpg") => "image/jpeg",
+        _ => "application/octet-stream",
     }
 }
 
@@ -214,13 +238,16 @@ mod tests {
         (format!("http://{addr}/img.webp"), requests)
     }
 
-    /// 在本 tokio runtime 里起代理，返回端口。
-    fn spawn_proxy(rt: &tokio::runtime::Runtime, cache_dir: &str, download_dir: &str) -> u16 {
+    /// 在本 tokio runtime 里起代理，返回端口与下载目录句柄（用例可在起服务之后再改目录）。
+    fn spawn_proxy(
+        rt: &tokio::runtime::Runtime,
+        cache_dir: &str,
+        download_dir: &str,
+    ) -> (u16, Arc<Mutex<String>>) {
         let (listener, port) = bind_img_proxy().unwrap();
-        let cd = cache_dir.to_string();
-        let dd = download_dir.to_string();
-        rt.spawn(serve(listener, cd, dd));
-        port
+        let dir = Arc::new(Mutex::new(download_dir.to_string()));
+        rt.spawn(serve(listener, cache_dir.to_string(), Arc::clone(&dir)));
+        (port, dir)
     }
 
     /// 对代理发裸 HTTP GET，返回 (status, 小写响应头, body 字节)。
@@ -291,10 +318,10 @@ mod tests {
 
     #[test]
     fn content_type_by_extension() {
-        assert_eq!(content_type_for("/x/a.jpg"), "image/jpeg");
-        assert_eq!(content_type_for("/x/a.webp"), "image/webp");
-        assert_eq!(content_type_for("/x/a.png"), "image/png");
-        assert_eq!(content_type_for("/x/a"), "application/octet-stream");
+        assert_eq!(content_type_for(Path::new("/x/a.jpg")), "image/jpeg");
+        assert_eq!(content_type_for(Path::new("/x/a.WEBP")), "image/webp");
+        assert_eq!(content_type_for(Path::new("/x/a.png")), "image/png");
+        assert_eq!(content_type_for(Path::new("/x/a")), "application/octet-stream");
     }
 
     /// 代理取热链图：带 Referer 转上游、透传 content-type 与字节、落盘后二次请求走缓存。
@@ -304,7 +331,7 @@ mod tests {
         let (upstream, requests) = spawn_upstream(BODY, "image/webp");
         let dir = temp_cache_dir("img");
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let port = spawn_proxy(&rt, dir.to_str().unwrap(), "");
+        let (port, _download_dir) = spawn_proxy(&rt, dir.to_str().unwrap(), "");
 
         let path = format!("/img?url={}&ref={}", urlencoding::encode(&upstream), "https://www.webtoons.com/");
         let (status, head, body) = http_get(port, &path);
@@ -332,7 +359,7 @@ mod tests {
         let img = dir.join("0.png");
         std::fs::write(&img, b"png-bytes").unwrap();
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let port = spawn_proxy(&rt, dir.to_str().unwrap(), "");
+        let (port, _download_dir) = spawn_proxy(&rt, dir.to_str().unwrap(), "");
 
         let path = format!("/img?path={}", urlencoding::encode(img.to_str().unwrap()));
         let (status, head, body) = http_get(port, &path);
@@ -354,7 +381,7 @@ mod tests {
         let (upstream, requests) = spawn_upstream(BODY, "image/png");
         let dir = temp_cache_dir("fallback");
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let port = spawn_proxy(&rt, dir.to_str().unwrap(), "");
+        let (port, _download_dir) = spawn_proxy(&rt, dir.to_str().unwrap(), "");
         let path = format!(
             "/img?path={}&url={}",
             urlencoding::encode("/no/such/file.jpg"),
@@ -372,7 +399,7 @@ mod tests {
     fn proxy_bad_query_returns_400() {
         let dir = temp_cache_dir("bad");
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let port = spawn_proxy(&rt, dir.to_str().unwrap(), "");
+        let (port, _download_dir) = spawn_proxy(&rt, dir.to_str().unwrap(), "");
         let (status, _, _) = http_get(port, "/img?x=1");
         assert_eq!(status, 400);
         drop(rt);
@@ -384,7 +411,8 @@ mod tests {
     fn proxy_download_index_hit() {
         let dir = temp_cache_dir("download_idx");
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let port = spawn_proxy(&rt, dir.to_str().unwrap(), dir.to_str().unwrap());
+        let (port, _download_dir) =
+            spawn_proxy(&rt, dir.to_str().unwrap(), dir.to_str().unwrap());
 
         // 创建下载目录结构
         let comic_path = dir.join("webtoons").join("comic-a").join("chapter_1");
@@ -409,6 +437,59 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// 下载目录由前端在起服务之后写入（装配时还不知道设置）：后续请求必须按它查索引。
+    /// 按值捕获这个目录会让离线阅读永远落到网络取图。
+    #[test]
+    fn download_dir_set_after_start_is_used() {
+        let dir = temp_cache_dir("download_late");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let (port, download_dir) = spawn_proxy(&rt, dir.to_str().unwrap(), "");
+
+        let comic_path = dir.join("webtoons").join("comic-a").join("chapter_1");
+        std::fs::create_dir_all(&comic_path).unwrap();
+        std::fs::write(comic_path.join("0.jpg"), b"late-jpg").unwrap();
+        download_index::record_download(
+            dir.to_str().unwrap(),
+            "webtoons",
+            "comic-a",
+            "https://example.com/ch1/0.jpg",
+            "chapter_1/0.jpg",
+        );
+
+        *download_dir.lock().unwrap() = dir.to_string_lossy().into_owned();
+
+        let path = "/img?url=https%3A%2F%2Fexample.com%2Fch1%2F0.jpg&source=webtoons&comicId=comic-a";
+        let (status, _, body) = http_get(port, path);
+        assert_eq!(status, 200);
+        assert_eq!(body, b"late-jpg");
+        drop(rt);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 相对路径（下载清单给的是 `chapter_<n>/<file>`）按下载目录解析，不是进程工作目录。
+    #[test]
+    fn relative_path_resolves_against_download_dir() {
+        let dir = temp_cache_dir("relative");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let (port, download_dir) =
+            spawn_proxy(&rt, dir.to_str().unwrap(), dir.to_str().unwrap());
+
+        let chapter = dir.join("webtoons").join("comic-a").join("chapter_1");
+        std::fs::create_dir_all(&chapter).unwrap();
+        std::fs::write(chapter.join("0.jpg"), b"relative-jpg").unwrap();
+
+        let path = format!(
+            "/img?path={}&source=webtoons&comicId=comic-a",
+            urlencoding::encode("chapter_1/0.jpg")
+        );
+        let (status, _, body) = http_get(port, &path);
+        assert_eq!(status, 200);
+        assert_eq!(body, b"relative-jpg");
+        drop(download_dir);
+        drop(rt);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// 离线阅读：下载索引未命中 → 回落到缓存取图
     #[test]
     fn proxy_download_index_miss_falls_back_to_cache() {
@@ -416,7 +497,8 @@ mod tests {
         let (upstream, requests) = spawn_upstream(BODY, "image/png");
         let dir = temp_cache_dir("download_miss");
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let port = spawn_proxy(&rt, dir.to_str().unwrap(), dir.to_str().unwrap());
+        let (port, _download_dir) =
+            spawn_proxy(&rt, dir.to_str().unwrap(), dir.to_str().unwrap());
 
         // 不记录索引，直接用 source+comicId+url 请求
         let path = format!(

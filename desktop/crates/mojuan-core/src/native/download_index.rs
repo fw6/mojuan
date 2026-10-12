@@ -70,6 +70,12 @@ pub fn find_downloaded_file(dir: &str, source: &str, comic_id: &str, url: &str) 
     idx.get(url).map(|rel| comic_dir(dir, source, comic_id).join(rel))
 }
 
+/// 相对文件路径（`chapter_<n>/<file>`，相对这部作品的下载目录）→ 绝对路径。
+/// 下载清单（`list_downloaded`）给出的 path 是相对形式，消费方据此定位磁盘文件。
+pub fn resolve_downloaded_path(dir: &str, source: &str, comic_id: &str, rel: &str) -> PathBuf {
+    comic_dir(dir, source, comic_id).join(rel)
+}
+
 /// list_downloaded 返回时把 url 带上（wayfinder #31：离线阅读器用 url 调用 img_proxy）。
 /// 返回 JSON: `{chapterIndex: [{"url": "...", "path": "..."}]}`。
 pub fn list_downloaded_with_urls(dir: &str, source: &str, comic_id: &str) -> String {
@@ -102,7 +108,7 @@ pub fn list_downloaded_with_urls(dir: &str, source: &str, comic_id: &str) -> Str
                             let url = idx.map.iter().find_map(|(u, p)| {
                                 if p == &rel { Some(u.clone()) } else { None }
                             }).unwrap_or_else(|| {
-                                // 旧数据无索引：url 字段留空，前端 localSrc 会回退 path
+                                // 旧数据无索引：url 字段留空，消费方按 path 取文件
                                 "".to_string()
                             });
                             files.push(serde_json::json!({ "url": url, "path": rel }));
