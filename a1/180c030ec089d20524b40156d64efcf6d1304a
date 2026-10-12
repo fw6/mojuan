@@ -1,0 +1,60 @@
+crates/mojuan-core/src/lib.rs
+  s_16759e9ae56874::t_2bf6ca0ca61444 13-17
+apps/updater/test/manifest.test.js
+  s_16759e9ae56874::t_8a58914d8d79f2 4
+  s_16759e9ae56874::t_0f399291d05fc9 291,295
+crates/mojuan-core/package.json
+  s_16759e9ae56874::t_8fa3952730037f 1-12
+.github/workflows/release.yml
+  s_16759e9ae56874::t_326f36203c0361 161,248
+crates/mojuan-core/Cargo.toml
+  s_16759e9ae56874::t_38fd4adbe238c4 3
+apps/mojuan/app-facts.js
+  s_16759e9ae56874::t_2dc0b14741ea2b 1-11
+apps/updater/package.json
+  s_16759e9ae56874::t_028f5562603497 11
+crates/mojuan-core/tests/source_doc_test.rs
+  s_16759e9ae56874::t_ced58c3eedcdb5 14
+apps/mojuan/src-tauri/Cargo.toml
+  s_16759e9ae56874::t_57cbb934616bc1 3
+apps/mojuan/vite.config.ts
+  s_16759e9ae56874::t_658bab235daf10 40-41,45
+apps/mojuan/src-tauri/tests/source_docs.rs
+  s_16759e9ae56874::t_f5cec7d5f6f834 1-20
+pnpm-lock.yaml
+  s_16759e9ae56874::t_03d99e6d0db9c6 262-264,269-276
+docs/agents/build-environment.md
+  s_16759e9ae56874::t_76c0f8d162e44f 27-32
+scripts/app-version.mjs
+  s_16759e9ae56874::t_dbd764d61018e8 1-23
+pnpm-workspace.yaml
+  s_16759e9ae56874::t_a5b8504edcd5a4 3
+crates/mojuan-core/tests/live_smoke.rs
+  s_16759e9ae56874::t_0f90ec25448ad6 10
+apps/mojuan/src-tauri/tests/tauri_config.rs
+  s_16759e9ae56874::t_1413a87c80039e 1-17
+crates/mojuan-core/vitest.config.js
+  s_16759e9ae56874::t_b59b684faa3851 1-11
+apps/mojuan/src-tauri/examples/render_probe.rs
+  s_16759e9ae56874::t_d6d6e9ae765fee 106
+apps/mojuan/package.json
+  s_16759e9ae56874::t_b11bb30f29ded5 5-7
+Cargo.toml
+  s_16759e9ae56874::t_819bda17a75eb7 12-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.49-trip",
+  "base_commit_sha": "a1180c030ec089d20524b40156d64efcf6d1304a",
+  "prompts": {},
+  "sessions": {
+    "s_16759e9ae56874": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_ace295f9-0218-4373-955b-6ca505653696",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
