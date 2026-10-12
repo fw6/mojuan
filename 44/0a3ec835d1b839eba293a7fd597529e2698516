@@ -1,0 +1,19 @@
+docs/agents/tauri-development.md
+  s_d65deceb794339::t_c2c829f748e4e0 143-144
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.45-trip",
+  "base_commit_sha": "440a3ec835d1b839eba293a7fd597529e2698516",
+  "prompts": {},
+  "sessions": {
+    "s_d65deceb794339": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_ac012f8d-c63d-4c60-9706-54563e81762f",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
