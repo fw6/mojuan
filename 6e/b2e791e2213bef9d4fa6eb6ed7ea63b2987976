@@ -1,0 +1,72 @@
+docs/research/hentara-source.md
+  s_16759e9ae56874::t_80200d6d12a5c2 3-4
+docs/research/source-script-security.md
+  s_16759e9ae56874::t_6202277b34fcd3 3-4
+docs/research/desktop-ci-release.md
+  s_16759e9ae56874::t_ebc920a5c86464 3-4
+docs/agents/tauri-development.md
+  s_16759e9ae56874::t_671386f6b29c42 108
+  s_16759e9ae56874::t_9305d8334f1d41 45,48-49,56-57
+  s_16759e9ae56874::t_7aa2cbf709a791 11-12
+docs/research/kxmanhua-source.md
+  s_16759e9ae56874::t_d4990aac0656a6 3-4
+docs/agents/mojuan-core.md
+  s_16759e9ae56874::t_a0a632323beb86 5-6
+  s_16759e9ae56874::t_b486e1daf25450 107
+docs/agents/build-environment.md
+  s_16759e9ae56874::t_93cd7328c87ab2 3-10,13-20,24-25
+docs/research/copymanga-source.md
+  s_16759e9ae56874::t_437cbacdf0e22b 3-4
+GLOSSARY.md
+  s_16759e9ae56874::t_20017a9969cc97 28
+docs/adr/0003-single-install-root.md
+  s_16759e9ae56874::t_c9875a56f8f956 1-61
+docs/research/manhuagui-source.md
+  s_16759e9ae56874::t_2a2f2dafee384c 3-4
+docs/research/webview-render-channel.md
+  s_16759e9ae56874::t_c20deab1d798ad 3-4
+PRODUCT.md
+  s_16759e9ae56874::t_354f8755b654eb 45
+docs/research/nnhanman-source.md
+  s_16759e9ae56874::t_e70b082404d1b6 3-4
+apps/updater/README.md
+  s_16759e9ae56874::t_f3a484c24d1418 84
+  s_16759e9ae56874::t_8a4bd45373a429 111
+  s_16759e9ae56874::t_258b8372fd397d 140-142
+  s_16759e9ae56874::t_516591dd57e4ce 132-134
+  s_16759e9ae56874::t_cde40d9863d952 66
+  s_16759e9ae56874::t_aba3e6706d6c79 171
+docs/research/mobile-storage-webview.md
+  s_16759e9ae56874::t_9afb448185396c 7-8
+docs/research/tauri-progress-push.md
+  s_16759e9ae56874::t_6296fbceff9d10 3-4
+docs/agents/frontend.md
+  s_16759e9ae56874::t_ad4a72e2c4b584 1
+  s_16759e9ae56874::t_cab5f9c9e48897 16-17
+  s_16759e9ae56874::t_05b7c25bd9c859 144,147-150
+  s_16759e9ae56874::t_6fe7753218c660 7
+docs/research/rquickjs-embedding.md
+  s_16759e9ae56874::t_f71667a9381ee0 3-4
+README.md
+  s_16759e9ae56874::t_1ad4a623dbea66 3,6-7,12-13,16-19,30
+docs/research/dongman-source.md
+  s_16759e9ae56874::t_a366b465b53d93 3-4
+docs/roadmap.md
+  s_16759e9ae56874::t_b3cd7d0043df6f 44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.49-trip",
+  "base_commit_sha": "6eb2e791e2213bef9d4fa6eb6ed7ea63b2987976",
+  "prompts": {},
+  "sessions": {
+    "s_16759e9ae56874": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_ace295f9-0218-4373-955b-6ca505653696",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
