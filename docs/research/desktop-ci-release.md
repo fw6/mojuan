@@ -2,6 +2,8 @@
 
 > **路径说明**（2026-10-12 布局改动）：本文里的 `desktop/` 现为 `apps/mojuan/`，`desktop/crates/` 现为 `crates/`，`updater/` 现为 `apps/updater/`，`npm`/`npx` 换成 `pnpm`。
 
+> **触发方式说明**（2026-10-13）：发布改为在 master 上手动 dispatch `release.yml`，tag 与 release 由 action 按版本号现创建，原因见 [ADR-0004](../adr/0004-release-trigger-and-rust-cache.md)；下面 §7 记的是当时的研究结论。
+
 Ticket: https://github.com/fw6/mojuan/issues/9 · 研究日期：2026-08-15。核验对象：tauri-action **v1.0.0**（GitHub Release tag `action-v1.0.0`，发布于 2026-06-29，见 GitHub API `repos/tauri-apps/tauri-action/releases/latest`；README/官方示例/官方 CI 指南统一用 `tauri-apps/tauri-action@v1` 引用）、Tauri v2 官方文档、Apple notarization 文档。旧 release.yml（移动端 APK 发布）已在 big-bang 提交 `843d417` 中随 sparkling-cimoc 一起删除（`git log --diff-filter=D` 核验），本方案为桌面端全新搭建。
 
 ## 结论与推荐（TL;DR）

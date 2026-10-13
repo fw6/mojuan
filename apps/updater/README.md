@@ -124,7 +124,7 @@ keytool -genkeypair -v -keystore mojuan-release.keystore \
 | macOS | `darwin-<arch>-app` | `.app.tar.gz`（桌面端不发 macOS 更新，这条用不到） |
 
 Android 不走 `latest.json`：它读 `/android.json`，拿到的永远是
-`mojuan_<版本>-android.apk`（通用包，四个 ABI 都在里面）。
+`mojuan_<版本>-android.apk`（通用包，只含 arm64-v8a）。
 
 ## 日常操作
 
@@ -154,11 +154,16 @@ curl -i https://mojuan.fengw.site/android.json
 
 ## 发布一个新版本
 
-1. 打 tag 推上去（`app-v<版本>`），`release.yml` 构建并发布 release：桌面三个平台由
-   tauri-action 出 `latest.json`，Android 作业出签名 APK 与 `android.json`。
-2. workflow 跑完即是对外状态——更新通道立刻开始推给用户，所以推 tag 之前先确认版本
+1. 把版本升到 `apps/mojuan/src-tauri/tauri.conf.json`（根 `Cargo.toml` 的
+   `workspace.package.version` 跟着改，`apps/mojuan/src-tauri/tests/tauri_config.rs`
+   有一条断言守着两者一致），提交并推到 master。
+2. 在 master 上手动 dispatch `release.yml`（Actions 页面选 release → Run workflow，
+   分支选 master；非 master 的 ref 会被 guard 作业挡下）。tag `app-v<版本>` 与 release
+   由 action 现创建：桌面三个平台由 tauri-action 出 `latest.json`，Android 作业出签名
+   APK 与 `android.json`。触发方式与原因见 [ADR-0004](../../docs/adr/0004-release-trigger-and-rust-cache.md)。
+3. workflow 跑完即是对外状态——更新通道立刻开始推给用户，所以 dispatch 之前先确认版本
    与改动；发错了按下面的「撤掉」处理。
-3. 用户端设置页点「检查新版本」即可看到：桌面端走「重启并安装」，Android 走
+4. 用户端设置页点「检查新版本」即可看到：桌面端走「重启并安装」，Android 走
    「下载 → 安装 → 系统确认」。
 
 Android 的版本号必须比手机上装的那份大（`versionName` 来自 tauri.conf.json 的

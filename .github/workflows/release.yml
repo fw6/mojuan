@@ -1,5 +1,11 @@
-# 桌面发布（research #9 定案 + wayfinder #26 强化）：tag app-v* 触发 + 手动 dispatch，
-# tauri-action@v1 构建 Windows + Linux + macOS（ad-hoc 签名）并发布 release。
+# 桌面发布（research #9 定案 + wayfinder #26 强化）：在 master 上手动 dispatch，
+# tauri-action@v1 构建 Windows + Linux + macOS（ad-hoc 签名）并发布 release，
+# tag（app-v<版本>）与 release 由 action 按 tauri.conf.json 里的版本号现创建。
+#
+# 触发方式是 master 上的手动 dispatch：GitHub 的缓存按 ref 隔离，tag 运行读不到别的
+# tag 存下的缓存（实测 1.6.4 的 Android 作业对 1.6.3 存下的 1 GB 缓存报 No cache
+# found），而 master 上的运行彼此共用一个作用域，历次发布之间能复用编译产物。
+# dispatch 时可选分支，guard 作业挡住非 master 的 ref。
 # 移动包（wayfinder #31 后）：build-android / build-ios 各自用 tauri CLI 构建并上传
 # 到同一 release——Android 出签名直装 APK（固定发布密钥，见下）+ android.json
 # 更新清单；iOS 无 Apple 开发者账号，出模拟器 .app（真机 .ipa 需签名，列入后置）。
@@ -13,12 +19,22 @@ name: release
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - 'app-v*'
 
 jobs:
+  # 发布只能从 master 发起：dispatch 可以选分支，选错会把这个分支的代码发成
+  # app-v<版本> 的正式版本，缓存的复用也依赖 master 这个作用域。
+  guard:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: 确认在 master 上
+        run: |
+          test "${GITHUB_REF}" = "refs/heads/master" || {
+            echo "发布必须在 master 上 dispatch，当前是 ${GITHUB_REF}" >&2
+            exit 1
+          }
+
   publish-tauri:
+    needs: guard
     permissions:
       contents: write
     strategy:
@@ -58,6 +74,16 @@ jobs:
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
+        with:
+          # 缓存键的一代前缀，改这里可以让所有旧条目整体失效。
+          prefix-key: v1-rust
+          # pnpm 把 crate 归档成目录源放在仓库根内的 .pnpm/crates，依赖的 manifest
+          # 路径因此落在仓库根之下；rust-cache 用「manifest 在不在工作区根之下」
+          # 区分工作区成员与第三方依赖，根取仓库根会把全部依赖当成工作区成员从
+          # target 里删掉。根取 apps/mojuan、目标目录仍指回仓库根的 target。
+          workspaces: apps/mojuan -> ../../target
+          # macOS 的两个矩阵项共用同一个 job id，键里带上 target 才不会互相覆盖。
+          key: ${{ matrix.args }}
 
       - name: install frontend dependencies
         run: pnpm install --frozen-lockfile
@@ -76,8 +102,11 @@ jobs:
 
   # Android 直装 APK：gen/android 按需 init（gitignore，wayfinder #31），
   # rquickjs-sys bindgen 需注入 NDK sysroot（本地核验：缺它 stdio.h 找不到）。
+  # 只出 arm64-v8a：tauri android build 对每个 ABI 各编译一遍 Rust 代码，多一个 ABI
+  # 就多一遍全量编译（四个 ABI 时这一步约 13 分钟，单 ABI 约 4 分钟）。
   build-android:
     runs-on: ubuntu-22.04
+    needs: guard
     permissions:
       contents: write
     defaults:
@@ -101,10 +130,31 @@ jobs:
       - name: install Rust with Android targets
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+          targets: aarch64-linux-android
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
+        with:
+          # 缓存键的一代前缀，改这里可以让所有旧条目整体失效。
+          prefix-key: v1-rust
+          # pnpm 把 crate 归档成目录源放在仓库根内的 .pnpm/crates，依赖的 manifest
+          # 路径因此落在仓库根之下；rust-cache 用「manifest 在不在工作区根之下」
+          # 区分工作区成员与第三方依赖，根取仓库根会把全部依赖当成工作区成员从
+          # target 里删掉。根取 apps/mojuan、目标目录仍指回仓库根的 target。
+          workspaces: apps/mojuan -> ../../target
+
+      # Gradle 的发行包与依赖：gen/android 不入库，wrapper 每次现生成，没有这份
+      # 缓存就要重下 gradle-8.14.3-bin.zip 与 AGP/Kotlin 的依赖。只缓存下载来的
+      # 东西（wrapper 的发行包 + modules-2 里的制品），配置缓存与 transform 的
+      # 产物留在当次运行里，不跨运行复用。
+      - name: Cache Gradle
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: gradle-${{ runner.os }}-
 
       # 安装走 workspace 根，其余步骤在 app 目录
       - name: install frontend dependencies
@@ -139,10 +189,7 @@ jobs:
           # 注意：路径在脚本内由 shell 展开（workflow env: 块不会展开 $ANDROID_HOME）
           NDK_SYSROOT="$ANDROID_HOME/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
           export BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android="--sysroot=$NDK_SYSROOT -I$NDK_SYSROOT/usr/include/aarch64-linux-android"
-          export BINDGEN_EXTRA_CLANG_ARGS_armv7_linux_androideabi="--sysroot=$NDK_SYSROOT -I$NDK_SYSROOT/usr/include/arm-linux-androideabi"
-          export BINDGEN_EXTRA_CLANG_ARGS_i686_linux_android="--sysroot=$NDK_SYSROOT -I$NDK_SYSROOT/usr/include/i686-linux-android"
-          export BINDGEN_EXTRA_CLANG_ARGS_x86_64_linux_android="--sysroot=$NDK_SYSROOT -I$NDK_SYSROOT/usr/include/x86_64-linux-android"
-          pnpm exec tauri android build --apk --ci
+          pnpm exec tauri android build --apk --ci --target aarch64
 
       # release APK 默认未签名，Android 无法直装，必须签名。用固定的发布密钥（secret
       # ANDROID_KEYSTORE_BASE64）：Android 只允许同签名的包覆盖安装，每次现生成密钥会
@@ -193,6 +240,7 @@ jobs:
   # 先出可装进模拟器的 aarch64-sim 包（ditto 打包保留权限/符号链接）。
   build-ios:
     runs-on: macos-latest
+    needs: guard
     permissions:
       contents: write
     defaults:
@@ -214,6 +262,14 @@ jobs:
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
+        with:
+          # 缓存键的一代前缀，改这里可以让所有旧条目整体失效。
+          prefix-key: v1-rust
+          # pnpm 把 crate 归档成目录源放在仓库根内的 .pnpm/crates，依赖的 manifest
+          # 路径因此落在仓库根之下；rust-cache 用「manifest 在不在工作区根之下」
+          # 区分工作区成员与第三方依赖，根取仓库根会把全部依赖当成工作区成员从
+          # target 里删掉。根取 apps/mojuan、目标目录仍指回仓库根的 target。
+          workspaces: apps/mojuan -> ../../target
 
       # 安装走 workspace 根，其余步骤在 app 目录
       - name: install frontend dependencies
