@@ -12,10 +12,11 @@ import {
 } from "../api";
 import { useCrawl } from "../lib/hooks/use-crawl";
 import { chapterLabel, filterExternalChapters } from "../lib/chapters";
+import { unreadIndexes } from "../lib/follow";
 import { getKnownComic } from "../lib/storage/comics";
 import { isFavorite, toggleFavorite } from "../lib/storage/favorites";
-import { setFollowState } from "../lib/storage/follow";
-import { getProgress } from "../lib/storage/progress";
+import { getFollowState, setFollowState, type FollowRecord } from "../lib/storage/follow";
+import { getProgress, type ProgressRecord } from "../lib/storage/progress";
 import { getSettings } from "../lib/storage/settings";
 import { cn } from "../lib/utils";
 import { sourceReferer, sourceTitle } from "../lib/sources";
@@ -47,6 +48,9 @@ export default function Detail() {
     const [favorite, setFavorite] = useState(false);
     // 阅读进度记着的那一话：话序号用来拼跳转地址，话名用来显示（进度里没记话名时从章节表取）
     const [resume, setResume] = useState<{ index: number; title: string } | null>(null);
+    // 追更状态与阅读进度：据此标出基线之后、进度之前还没读到的未读话
+    const [follow, setFollow] = useState<FollowRecord | null>(null);
+    const [progress, setProgress] = useState<ProgressRecord | null>(null);
     // 书架（收藏 / 历史）里记着的作品信息：首屏先用它渲染，抓取结果到了再覆盖
     const [known, setKnown] = useState<Comic | null>(null);
     // 下载（多选）：磁盘上已有的章节 + 用户勾选 + 提交进度
@@ -77,19 +81,28 @@ export default function Detail() {
     /** 章节表是否已经取到（没取到时不能按「这部作品没有章节」渲染）。 */
     const chaptersReady = detail.data !== null;
 
-    // 收藏 / 阅读进度 / 下载目录 / 磁盘上已有的章节 / 书架里记着的作品信息：
+    // 未读的话：基线之后、进度之前还没读到的非外链话。最新一话（序号最大的一话）
+    // 额外加「新」的强调；追更状态缺失或待重建时未读集为空，页面不标任何东西。
+    const unread = unreadIndexes(follow, progress);
+    const unreadSet = new Set(unread);
+    const newestUnread = unread.length > 0 ? unread[unread.length - 1] : null;
+
+    // 收藏 / 阅读进度 / 追更状态 / 下载目录 / 磁盘上已有的章节 / 书架里记着的作品信息：
     // 与抓取无关，各取一次
     useEffect(() => {
         let cancelled = false;
         void (async () => {
-            const [fav, prog, settings, saved] = await Promise.all([
+            const [fav, prog, followState, settings, saved] = await Promise.all([
                 isFavorite(source!, id),
                 getProgress(source!, id),
+                getFollowState(source!, id),
                 getSettings(),
                 getKnownComic(source!, id),
             ]);
             if (cancelled) return;
             setFavorite(fav);
+            setProgress(prog);
+            setFollow(followState);
             setResume(
                 prog
                     ? { index: prog.chapterIndex, title: prog.chapterTitle ?? "" }
@@ -386,6 +399,8 @@ export default function Detail() {
                                                   ? "queued"
                                                   : "none"
                                         }
+                                        unread={unreadSet.has(ch.index)}
+                                        isNew={ch.index === newestUnread}
                                         selecting={selecting}
                                         selected={selected.has(ch.index)}
                                         source={source!}
@@ -445,11 +460,14 @@ export default function Detail() {
     );
 }
 
-/** 章节块：浏览时是进入阅读的链接，选择模式下是勾选按钮（本地已有的章节不可选）。 */
+/** 章节块：浏览时是进入阅读的链接，选择模式下是勾选按钮（本地已有的章节不可选）。
+ * 未读标记（基线之后还没读到的每一话）与下载状态是两条独立的线，同时显示、互不覆盖。 */
 function ChapterTile({
     chapter: ch,
     current,
     state,
+    unread,
+    isNew,
     selecting,
     selected,
     source,
@@ -459,6 +477,8 @@ function ChapterTile({
     chapter: Chapter;
     current: boolean;
     state: "none" | "downloaded" | "queued";
+    unread: boolean;
+    isNew: boolean;
     selecting: boolean;
     selected: boolean;
     source: string;
@@ -470,7 +490,15 @@ function ChapterTile({
 
     const body = (
         <>
+            {unread && (
+                <span
+                    role="img"
+                    aria-label="未读"
+                    className="size-1.5 shrink-0 rounded-full bg-primary"
+                />
+            )}
             <span className="min-w-0 flex-1 truncate">{ch.title}</span>
+            {isNew && <Tag tone="primary">新</Tag>}
             {state === "downloaded" && (
                 <Check
                     className="size-3.5 shrink-0 text-success"

@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { locateBaseline, nextFollowRecord, unreadCount } from "./follow";
+import {
+    locateBaseline,
+    nextFollowRecord,
+    unreadCount,
+    unreadIndexes,
+} from "./follow";
 import type { Chapter } from "../api";
 import type { FollowRecord } from "./storage/follow";
 import type { ProgressRecord } from "./storage/progress";
@@ -87,6 +92,35 @@ describe("nextFollowRecord（由章节表与基线算出追更状态）", () => 
         const out = nextFollowRecord(chapters, { index: 1, title: "甲" }, 0);
         expect(out.newChapterIndexes).toEqual([20]);
         expect(out.needsRebuild).toBe(false);
+    });
+});
+
+describe("unreadIndexes（未读的话序号）", () => {
+    it("没有记录时为空", () => {
+        expect(unreadIndexes(null, null)).toEqual([]);
+    });
+
+    it("待重建时为空", () => {
+        expect(
+            unreadIndexes(record({ needsRebuild: true, newChapterIndexes: [1, 2, 3] }), null),
+        ).toEqual([]);
+    });
+
+    it("没有进度记录时就是基线之后的话序号（升序）", () => {
+        expect(unreadIndexes(record({ newChapterIndexes: [2, 3, 4] }), null)).toEqual([2, 3, 4]);
+    });
+
+    it("有进度记录时只保留进度之后的话", () => {
+        const rec = record({ newChapterIndexes: [2, 3, 4] });
+        expect(unreadIndexes(rec, progress(3))).toEqual([4]);
+        expect(unreadIndexes(rec, progress(4))).toEqual([]);
+    });
+
+    it("跳读留下的空档不计入（从第 1 话跳到第 100 话）", () => {
+        const indexes = Array.from({ length: 99 }, (_, i) => i + 2);
+        const rec = record({ newChapterIndexes: indexes });
+        expect(unreadIndexes(rec, progress(100))).toEqual([]);
+        expect(unreadIndexes(rec, progress(50))).toHaveLength(50);
     });
 });
 
