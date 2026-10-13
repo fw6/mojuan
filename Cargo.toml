@@ -15,4 +15,4 @@ resolver = "2"
 # Cargo 读不了 json，所以这里跟一份，apps/mojuan/src-tauri/tests/tauri_config.rs 有一条
 # 断言守着两者一致；发布流程用 scripts/app-version.mjs 取。
 [workspace.package]
-version = "1.6.5"
+version = "1.6.6"
