@@ -14,6 +14,7 @@ import { useCrawl } from "../lib/hooks/use-crawl";
 import { chapterLabel, filterExternalChapters } from "../lib/chapters";
 import { getKnownComic } from "../lib/storage/comics";
 import { isFavorite, toggleFavorite } from "../lib/storage/favorites";
+import { setFollowState } from "../lib/storage/follow";
 import { getProgress } from "../lib/storage/progress";
 import { getSettings } from "../lib/storage/settings";
 import { cn } from "../lib/utils";
@@ -116,7 +117,26 @@ export default function Detail() {
 
     async function onToggleFavorite() {
         if (!comic) return;
-        setFavorite(await toggleFavorite(comic));
+        const nowFavorite = await toggleFavorite(comic);
+        setFavorite(nowFavorite);
+        if (!nowFavorite) return;
+        // 收藏时落下追更基线：有进度随进度走，没有进度取章节表最后一话（刚收藏不显示角标）。
+        // 读持久化的进度，不用渲染态里的 resume（可能是别的作品的旧值）。
+        const progress = await getProgress(source!, id);
+        const last = chapters[chapters.length - 1];
+        const baseline = progress
+            ? { index: progress.chapterIndex, title: progress.chapterTitle }
+            : last
+              ? { index: last.index, title: last.title }
+              : null;
+        // 章节表还没取到（或只有外链章节）时没有基线可落，留给下一次检查按最后一话兜底
+        if (!baseline) return;
+        await setFollowState(source!, id, {
+            checkedAt: Date.now(),
+            baseline,
+            newChapterIndexes: [],
+            needsRebuild: false,
+        });
     }
 
     /** 本地已有的章节（已下载或排队中）不再参与勾选。 */

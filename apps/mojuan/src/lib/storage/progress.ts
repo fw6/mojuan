@@ -31,3 +31,9 @@ export async function setProgress(
     const store = await getStore(FILES.progress);
     await store.set(comicKey(source, comicId), record);
 }
+
+/** 一次读出全部进度（书架要在一趟读里算出每一条的未读数）。键为 comicKey。 */
+export async function getProgressAll(): Promise<Record<string, ProgressRecord>> {
+    const store = await getStore(FILES.progress);
+    return Object.fromEntries(await store.entries<ProgressRecord>());
+}
