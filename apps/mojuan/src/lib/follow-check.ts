@@ -1,6 +1,6 @@
 import { crawl, type Chapter, type Comic } from "../api";
 import { errorFirstLine } from "./errors";
-import { nextFollowRecord } from "./follow";
+import { lastChapterBaseline, nextFollowRecord } from "./follow";
 import { getFollowState, setFollowState, type FollowRecord } from "./storage/follow";
 import { getProgress, type ProgressRecord } from "./storage/progress";
 import { getSettings, setSettings } from "./storage/settings";
@@ -65,12 +65,6 @@ export function shouldSkipCheck(
     return lastCheckedAt !== null && now - lastCheckedAt < throttleMs;
 }
 
-/** 基线缺失时（从未打开过、也没有记录）取新章节表的最后一话，避免老收藏出现积压角标。 */
-function lastChapterBaseline(chapters: Chapter[]): { index: number; title?: string } {
-    const last = chapters[chapters.length - 1];
-    return { index: last.index, title: last.title };
-}
-
 function failureReason(error: unknown): string {
     return errorFirstLine(error instanceof Error ? error.message : String(error));
 }
@@ -103,6 +97,10 @@ async function checkOne(
     const baseline = progress
         ? { index: progress.chapterIndex, title: progress.chapterTitle }
         : (record?.baseline ?? lastChapterBaseline(chapters));
+    // 章节全是外链时没有可作基线的非外链话：不写状态，留给下一次检查
+    if (!baseline) {
+        return { failure: { source, comicId, title: favorite.title, reason: "没有可用的章节" } };
+    }
     return {
         update: { source, comicId, record: nextFollowRecord(chapters, baseline, input.now) },
     };

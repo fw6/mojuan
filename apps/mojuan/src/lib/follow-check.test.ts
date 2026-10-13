@@ -143,6 +143,32 @@ describe("runFollowCheck（逐部检查）", () => {
         expect(result.updated[0].record.newChapterIndexes).toEqual([]);
     });
 
+    it("兜底基线跳过外链章节，落在最后一话非外链话上", async () => {
+        const input = baseInput({
+            getDetail: vi.fn().mockResolvedValue({
+                comic: comic("c1"),
+                chapters: [chapter(1), chapter(2), chapter(3, { external: true })],
+            }),
+        });
+        const result = await runFollowCheck(input);
+        expect(result.updated[0].record.baseline).toEqual({ index: 2, title: "第 2 话" });
+        expect(result.updated[0].record.newChapterIndexes).toEqual([]);
+    });
+
+    it("章节全是外链时没有可作基线的非外链话：进失败清单，不写状态", async () => {
+        const input = baseInput({
+            getDetail: vi.fn().mockResolvedValue({
+                comic: comic("c1"),
+                chapters: [chapter(1, { external: true })],
+            }),
+        });
+        const result = await runFollowCheck(input);
+        expect(result.updated).toEqual([]);
+        expect(result.failures).toEqual([
+            { source: "mangadex", comicId: "c1", title: "作品 c1", reason: "没有可用的章节" },
+        ]);
+    });
+
     it("已有记录时沿用记录里的基线", async () => {
         const record: FollowRecord = {
             checkedAt: 1,

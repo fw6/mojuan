@@ -349,19 +349,49 @@ describe("Detail 未读标记", () => {
         expect(await screen.findByText("第 1 话")).toBeTruthy();
 
         // 第 2、3 话标未读；第 1 话是基线，不标
-        expect(await screen.findAllByRole("img", { name: "未读" })).toHaveLength(2);
+        const dots = await screen.findAllByRole("img", { name: "未读" });
+        expect(dots).toHaveLength(2);
+        // 未读点用青绿强调，蓝色留给当前章节
+        for (const dot of dots) expect(dot.className).toContain("bg-accent");
         expect(
             within(screen.getByRole("link", { name: /第 1 话/ })).queryByRole("img", {
                 name: "未读",
             }),
         ).toBeNull();
-        // 最新一话（第 3 话）额外加「新」，第 2 话没有
+        // 最新一话（第 3 话）额外加「新」，同样用青绿强调；第 2 话没有
         expect(
-            within(screen.getByRole("link", { name: /第 3 话/ })).getByText("新"),
-        ).toBeTruthy();
+            within(screen.getByRole("link", { name: /第 3 话/ })).getByText("新").className,
+        ).toContain("bg-accent/25");
         expect(
             within(screen.getByRole("link", { name: /第 2 话/ })).queryByText("新"),
         ).toBeNull();
+    });
+
+    it("当前章节仍用蓝色标记，与青绿的未读标记分开", async () => {
+        mockedCrawl.mockResolvedValue({
+            comic: COMIC,
+            chapters: [chapter(1), chapter(2)],
+        });
+        mockedFollowState.mockResolvedValue(followRecord([2], { baseline: { index: 1 } }));
+        mockedProgress.mockResolvedValue({
+            chapterIndex: 1,
+            pageIndex: 0,
+            offsetInPage: 0,
+            updatedAt: 1,
+        });
+        renderDetail();
+        expect(await screen.findByText("第 1 话")).toBeTruthy();
+
+        // 当前章节（第 1 话）带蓝色 10% 底与描边
+        expect(screen.getByRole("link", { name: "第 1 话" }).className).toContain(
+            "bg-primary/10",
+        );
+        // 第 2 话是未读：青绿点，不带当前章节的蓝色底
+        const unread = screen.getByRole("link", { name: /第 2 话/ });
+        expect(unread.className).not.toContain("bg-primary/10");
+        expect(within(unread).getByRole("img", { name: "未读" }).className).toContain(
+            "bg-accent",
+        );
     });
 
     it("进度之后的话才算未读，最新一话是未读集里序号最大的一话", async () => {
