@@ -1,0 +1,21 @@
+GLOSSARY.md
+  s_ceb33f50e6e15c::t_a1de90c1db9a18 24-27
+docs/adr/0005-follow-baseline-is-progress.md
+  s_ceb33f50e6e15c::t_1831595bc323c0 1-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.49-trip",
+  "base_commit_sha": "3332d070e23394fc7c3b0f2bb4e8a294c72a8387",
+  "prompts": {},
+  "sessions": {
+    "s_ceb33f50e6e15c": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_5e6e1487-8c0c-4f70-8739-bb10697ab68f",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
