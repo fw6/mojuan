@@ -126,6 +126,7 @@ beforeEach(() => {
         downloadDir: null,
         darkMode: false,
         autoTrim: false,
+        followUpdate: true,
         lastSource: null,
         lastCategory: {},
     });
@@ -206,6 +207,7 @@ describe("书架页的删除", () => {
             downloadDir: "/mock/downloads",
             darkMode: false,
             autoTrim: false,
+            followUpdate: true,
             lastSource: null,
             lastCategory: {},
         });
@@ -231,6 +233,7 @@ describe("书架页的删除", () => {
             downloadDir: "/mock/downloads",
             darkMode: false,
             autoTrim: false,
+            followUpdate: true,
             lastSource: null,
             lastCategory: {},
         });
@@ -270,6 +273,7 @@ describe("书架页的删除", () => {
             downloadDir: "/mock/downloads",
             darkMode: false,
             autoTrim: false,
+            followUpdate: true,
             lastSource: null,
             lastCategory: {},
         });

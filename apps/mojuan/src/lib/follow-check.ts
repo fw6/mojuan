@@ -3,6 +3,7 @@ import { errorFirstLine } from "./errors";
 import { nextFollowRecord } from "./follow";
 import { getFollowState, setFollowState, type FollowRecord } from "./storage/follow";
 import { getProgress, type ProgressRecord } from "./storage/progress";
+import { getSettings } from "./storage/settings";
 import { whenSourcesReady } from "./storage/sources";
 
 // 书架追更的检查编排：注入取详情 / 读进度 / 读状态三处 I/O，串行逐部检查。
@@ -106,8 +107,21 @@ export async function runFollowCheck(input: FollowCheckInput): Promise<FollowChe
     return { updated, failures };
 }
 
+/** 生产检查的选项。 */
+export interface FollowCheckRunOptions {
+    /** 手动刷新：不受节流限制，也不受「书架追更」开关限制。 */
+    manual?: boolean;
+}
+
 /** 生产用的检查：取详情走 crawl（不读结果缓存，总是拉最新），结果写入追更状态域。 */
-export async function runFollowCheckNow(favorites: Comic[]): Promise<FollowCheckResult> {
+export async function runFollowCheckNow(
+    favorites: Comic[],
+    options?: FollowCheckRunOptions,
+): Promise<FollowCheckResult> {
+    // 自动检查在「书架追更」关闭时直接返回：不读源、不写状态。手动刷新不走这道门。
+    if (!options?.manual && !(await getSettings()).followUpdate) {
+        return { updated: [], failures: [] };
+    }
     // 源注册表就绪前 crawl 会返回空结果：等同步单例完成，免得首屏进书架全判成失败
     await whenSourcesReady();
     const result = await runFollowCheck({

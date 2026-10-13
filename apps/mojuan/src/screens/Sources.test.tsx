@@ -44,6 +44,7 @@ const DEFAULT_SETTINGS = {
     downloadDir: null,
     darkMode: false,
     autoTrim: false,
+    followUpdate: true,
     lastSource: null as string | null,
     lastCategory: {} as Record<string, string>,
 };
