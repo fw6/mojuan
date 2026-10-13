@@ -1,0 +1,91 @@
+apps/mojuan/src/screens/Reader.tsx
+  s_7110d1f1564e6d::t_82d9d489553cff 431
+  s_7110d1f1564e6d::t_f025882389e031 518
+  s_7110d1f1564e6d::t_78559f4ee8f103 519-522
+  s_7110d1f1564e6d::t_77b63f1f1ca632 409
+  s_7110d1f1564e6d::t_8b0d12a1eaa5d9 428-430,436-437,457
+  s_7110d1f1564e6d::t_7422c97569b7fa 28,34
+  s_7110d1f1564e6d::t_3a3720ecd1ef54 411
+apps/mojuan/src/lib/chapters.ts
+  s_7110d1f1564e6d::t_540f6c24fd589f 11-19
+apps/mojuan/src/screens/Downloads.tsx
+  s_7110d1f1564e6d::t_a91d809a5e421a 270
+  s_7110d1f1564e6d::t_cce42800666eda 200-204,255-269,271,275,279,281
+  s_7110d1f1564e6d::t_612b962e550c48 2
+  s_7110d1f1564e6d::t_6cac5037f6935f 25
+  s_7110d1f1564e6d::t_93161355f108b1 329
+apps/mojuan/src/screens/Detail.test.tsx
+  s_7110d1f1564e6d::t_607b012c7e43df 141-150,155-164,170,172
+  s_7110d1f1564e6d::t_46dee00e1cfe6e 46,52
+  s_7110d1f1564e6d::t_cca1a89f080292 165
+  s_7110d1f1564e6d::t_58cce9918e32c3 151-154
+  s_7110d1f1564e6d::t_d1976e4d4662b6 166-169,171
+apps/mojuan/src/lib/hooks/use-reader-position.ts
+  s_7110d1f1564e6d::t_2244410ffeb2a9 37
+  s_7110d1f1564e6d::t_ba7010b76bfd02 12-13
+  s_7110d1f1564e6d::t_323d51275d5bad 84
+apps/mojuan/src/lib/storage/history.test.ts
+  s_7110d1f1564e6d::t_71f4b30da1d200 15-17,20,24-26,30,34-35,39
+apps/mojuan/src/screens/Detail.tsx
+  s_7110d1f1564e6d::t_cfd56d764246a7 276,281-287
+  s_7110d1f1564e6d::t_65ccbcb78433d1 361
+  s_7110d1f1564e6d::t_9fd3a22813723f 92-96
+  s_7110d1f1564e6d::t_a78113635e027b 14
+  s_7110d1f1564e6d::t_e817832398984a 47-48
+apps/mojuan/src/lib/storage/backup.test.ts
+  s_7110d1f1564e6d::t_5265a997692494 21
+apps/mojuan/src/api.ts
+  s_7110d1f1564e6d::t_b94119df75a5ac 41-43
+apps/mojuan/src/screens/Reader.test.tsx
+  s_7110d1f1564e6d::t_8a0b76dbb466b3 49
+  s_7110d1f1564e6d::t_3cd9ecd44d4489 59
+  s_7110d1f1564e6d::t_69e586c8e3daa1 331-336
+  s_7110d1f1564e6d::t_7bb06f3f6dbbbb 25
+  s_7110d1f1564e6d::t_2d124a4ee32437 516-535
+apps/mojuan/src/lib/storage/history.ts
+  s_7110d1f1564e6d::t_26ad1334c0a5bc 7-9
+  s_7110d1f1564e6d::t_a9f212e9a9a8c1 30-34,39
+apps/mojuan/src/screens/Library.test.tsx
+  s_7110d1f1564e6d::t_94aeaa4d7c692b 122-137
+  s_7110d1f1564e6d::t_556fba5acc5a27 17
+  s_7110d1f1564e6d::t_74fea8078fde84 108-109
+  s_7110d1f1564e6d::t_bd9fbc412f7ee0 42-45,50,61
+  s_7110d1f1564e6d::t_f91d9c78ebf810 237,243-271,273-285,287
+  s_7110d1f1564e6d::t_1e1a7496b84524 272,286,288-289
+apps/mojuan/src/screens/Downloads.test.tsx
+  s_7110d1f1564e6d::t_2e411158a900e2 1-88
+apps/mojuan/src/screens/Library.tsx
+  s_7110d1f1564e6d::t_8abdf7f69798a1 29
+  s_7110d1f1564e6d::t_d4ccb57112b9f2 422-446,455-474,477-485
+  s_7110d1f1564e6d::t_a19c2abea89542 21
+  s_7110d1f1564e6d::t_665690ea15300c 205,208-210
+  s_7110d1f1564e6d::t_3caca82d43e008 512
+  s_7110d1f1564e6d::t_b5ea516f2aa4c0 475
+apps/mojuan/src/lib/hooks/use-reader-position.test.ts
+  s_7110d1f1564e6d::t_a79e250cbdc488 92,101,113
+  s_7110d1f1564e6d::t_4317954b7592b2 28-31
+docs/agents/frontend.md
+  s_7110d1f1564e6d::t_3d1fc2f347c0f0 151-153
+  s_7110d1f1564e6d::t_2472db05ad4994 159,162
+DESIGN.md
+  s_7110d1f1564e6d::t_0bea49664f7a60 332
+  s_7110d1f1564e6d::t_f46d24ebd44149 338
+apps/mojuan/src/lib/storage/progress.ts
+  s_7110d1f1564e6d::t_6c50b311e6d230 8-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.49-trip",
+  "base_commit_sha": "6e909bb13861eb43cc21d861298426b7a08dc0ca",
+  "prompts": {},
+  "sessions": {
+    "s_7110d1f1564e6d": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_71e434cd-cea7-472e-901b-13759c9ab933",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
