@@ -7,6 +7,7 @@ import {
     type Location,
 } from "react-router-dom";
 import { ScrollContainerContext } from "../lib/scroll-container";
+import { PageActiveContext } from "../lib/page-active";
 import { cn } from "../lib/utils";
 
 /**
@@ -162,9 +163,11 @@ function PageSlot({ entry, active }: { entry: PageEntry; active: boolean }) {
             )}
         >
             <ScrollContainerContext.Provider value={scrollRef}>
-                <Routes location={entry.location}>
-                    <Route path={entry.route.path} element={entry.route.element} />
-                </Routes>
+                <PageActiveContext.Provider value={active}>
+                    <Routes location={entry.location}>
+                        <Route path={entry.route.path} element={entry.route.element} />
+                    </Routes>
+                </PageActiveContext.Provider>
             </ScrollContainerContext.Provider>
         </div>
     );

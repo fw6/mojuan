@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("@tauri-apps/plugin-store", async () => (await import("./test-doubles")).storePlugin);
 
-import { getProgress, setProgress } from "./progress";
+import { getProgress, getProgressAll, setProgress } from "./progress";
 import { resetDoubles } from "./test-doubles";
 
 beforeEach(() => {
@@ -46,6 +46,25 @@ describe("进度 progress", () => {
             chapterIndex: 2,
             pageIndex: 7,
             offsetInPage: 0.8,
+        });
+    });
+
+    it("getProgressAll 一次读出全部，键为 comicKey", async () => {
+        await setProgress("mangadex", "c1", {
+            chapterIndex: 3,
+            pageIndex: 0,
+            offsetInPage: 0,
+            updatedAt: 1,
+        });
+        await setProgress("webtoons", "c2", {
+            chapterIndex: 8,
+            pageIndex: 0,
+            offsetInPage: 0,
+            updatedAt: 2,
+        });
+        await expect(getProgressAll()).resolves.toEqual({
+            "mangadex:c1": { chapterIndex: 3, pageIndex: 0, offsetInPage: 0, updatedAt: 1 },
+            "webtoons:c2": { chapterIndex: 8, pageIndex: 0, offsetInPage: 0, updatedAt: 2 },
         });
     });
 });

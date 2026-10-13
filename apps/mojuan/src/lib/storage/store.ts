@@ -15,6 +15,7 @@ export const FILES = {
     favorites: "favorites.json",
     history: "history.json",
     progress: "progress.json",
+    follow: "follow.json",
     sourceCache: "sources-cache.json",
     sources: "sources.json",
 } as const;

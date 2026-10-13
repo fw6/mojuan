@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import Detail from "./Detail";
 import type { Chapter, Comic } from "../api";
@@ -24,6 +24,10 @@ vi.mock("../lib/storage/favorites", () => ({
     toggleFavorite: vi.fn(),
 }));
 
+vi.mock("../lib/storage/follow", () => ({
+    setFollowState: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("../lib/storage/progress", () => ({
     getProgress: vi.fn().mockResolvedValue(null),
 }));
@@ -43,12 +47,16 @@ vi.mock("../lib/storage/sources", () => ({
 
 import { crawl, crawlCached } from "../api";
 import { getKnownComic } from "../lib/storage/comics";
+import { toggleFavorite } from "../lib/storage/favorites";
+import { setFollowState } from "../lib/storage/follow";
 import { getProgress } from "../lib/storage/progress";
 import { ToastProvider } from "../components/toast";
 
 const mockedCrawl = vi.mocked(crawl);
 const mockedCached = vi.mocked(crawlCached);
 const mockedKnown = vi.mocked(getKnownComic);
+const mockedToggleFavorite = vi.mocked(toggleFavorite);
+const mockedSetFollow = vi.mocked(setFollowState);
 const mockedProgress = vi.mocked(getProgress);
 
 const COMIC: Comic = {
@@ -94,6 +102,9 @@ beforeEach(() => {
     vi.clearAllMocks();
     mockedCached.mockResolvedValue(null);
     mockedKnown.mockResolvedValue(null);
+    mockedProgress.mockResolvedValue(null);
+    mockedToggleFavorite.mockResolvedValue(false);
+    mockedSetFollow.mockResolvedValue(undefined);
     mockedCrawl.mockResolvedValue({ comic: COMIC, chapters: [chapter(1)] });
 });
 
@@ -169,5 +180,65 @@ describe("Detail 详情页", () => {
         });
         renderDetail();
         expect(await screen.findByText("继续阅读 第七话 相遇")).toBeTruthy();
+    });
+
+    it("收藏一部没有进度的作品：基线取章节表最后一话（外链不算）", async () => {
+        mockedToggleFavorite.mockResolvedValue(true);
+        mockedCrawl.mockResolvedValue({
+            comic: COMIC,
+            chapters: [chapter(1), chapter(2), { ...chapter(3), external: true }],
+        });
+        renderDetail();
+        expect(await screen.findByText("第 2 话")).toBeTruthy();
+
+        fireEvent.click(screen.getByRole("button", { name: /收藏/ }));
+
+        await waitFor(() =>
+            expect(mockedSetFollow).toHaveBeenCalledWith("webtoons", "webtoons-1", {
+                checkedAt: expect.any(Number),
+                baseline: { index: 2, title: "第 2 话" },
+                newChapterIndexes: [],
+                needsRebuild: false,
+            }),
+        );
+    });
+
+    it("收藏一部已有进度的作品：基线取进度记录", async () => {
+        mockedToggleFavorite.mockResolvedValue(true);
+        mockedProgress.mockResolvedValue({
+            chapterIndex: 7,
+            chapterTitle: "第七话 相遇",
+            pageIndex: 0,
+            offsetInPage: 0,
+            updatedAt: 1,
+        });
+        mockedCrawl.mockResolvedValue({
+            comic: COMIC,
+            chapters: [chapter(7), chapter(8)],
+        });
+        renderDetail();
+        expect(await screen.findByText("第 8 话")).toBeTruthy();
+
+        fireEvent.click(screen.getByRole("button", { name: /收藏/ }));
+
+        await waitFor(() =>
+            expect(mockedSetFollow).toHaveBeenCalledWith("webtoons", "webtoons-1", {
+                checkedAt: expect.any(Number),
+                baseline: { index: 7, title: "第七话 相遇" },
+                newChapterIndexes: [],
+                needsRebuild: false,
+            }),
+        );
+    });
+
+    it("取消收藏时不写追更状态", async () => {
+        mockedToggleFavorite.mockResolvedValue(false);
+        renderDetail();
+        expect(await screen.findByText("第 1 话")).toBeTruthy();
+
+        fireEvent.click(screen.getByRole("button", { name: /收藏/ }));
+
+        await waitFor(() => expect(mockedToggleFavorite).toHaveBeenCalled());
+        expect(mockedSetFollow).not.toHaveBeenCalled();
     });
 });

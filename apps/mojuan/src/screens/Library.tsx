@@ -26,6 +26,15 @@ import {
 } from "../api";
 import { getFavorites, removeFavorite } from "../lib/storage/favorites";
 import { getHistory, removeHistory, type HistoryRecord } from "../lib/storage/history";
+import {
+    getFollowStates,
+    removeFollowState,
+    type FollowRecord,
+} from "../lib/storage/follow";
+import { getProgressAll, type ProgressRecord } from "../lib/storage/progress";
+import { unreadCount } from "../lib/follow";
+import { runFollowCheckNow } from "../lib/follow-check";
+import { usePageActive } from "../lib/page-active";
 import { chapterLabel } from "../lib/chapters";
 import { getSettings } from "../lib/storage/settings";
 import { comicKey } from "../lib/storage/store";
@@ -90,12 +99,18 @@ export default function Library() {
     const [downloadDir, setDownloadDir] = useState<string | null>(null);
     const [lastScanDir, setLastScanDir] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    // 追更：每部收藏的最近检查结果与阅读进度，角标由两者就地算出
+    const [followStates, setFollowStates] = useState<Record<string, FollowRecord>>({});
+    const [progressAll, setProgressAll] = useState<Record<string, ProgressRecord>>({});
+    const active = usePageActive();
 
     const refresh = useCallback(async () => {
         setError(null);
         try {
             setHistory(await getHistory());
             setFavorites(await getFavorites());
+            setFollowStates(await getFollowStates());
+            setProgressAll(await getProgressAll());
             const s = await getSettings();
             setDownloadDir(s.downloadDir);
             setDownloads(s.downloadDir ? await scanLocal(s.downloadDir) : []);
@@ -111,6 +126,29 @@ export default function Library() {
     useEffect(() => {
         void refresh();
     }, [refresh, tab]);
+
+    // 进入书架跑一次检查（保留页的挂载 effect 不会重跑，靠 active 感知「又被打开了」）。
+    // 静默进行：不显示加载态；失败只留在结果里，呈现留给 #34。
+    useEffect(() => {
+        if (!active) return;
+        let cancelled = false;
+        void (async () => {
+            try {
+                const list = await getFavorites();
+                // 先读回最新进度：读完最新一话回到书架，角标立刻归零，不等这次检查
+                const progress = await getProgressAll();
+                if (!cancelled) setProgressAll(progress);
+                await runFollowCheckNow(list);
+                const states = await getFollowStates();
+                if (!cancelled) setFollowStates(states);
+            } catch (e) {
+                console.error("书架追更检查失败", e);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [active]);
 
     async function pickLocalDir() {
         try {
@@ -137,6 +175,8 @@ export default function Library() {
     async function onDeleteFavorite(comic: Comic) {
         try {
             await removeFavorite(comic.source, comic.id);
+            // 追更状态一并删掉：先取消再重新收藏不会捡回旧的基线
+            await removeFollowState(comic.source, comic.id);
             setFavorites((list) => list?.filter((c) => !sameComic(c, comic)) ?? list);
             toast.show("已取消收藏", "success");
         } catch (e) {
@@ -236,20 +276,38 @@ export default function Library() {
                     />
                 ) : (
                     <SwipeableList
-                        items={favorites.map((c) => ({
-                            id: comicKey(c.source, c.id),
-                            content: (
-                                <SwipeRow>
-                                    <ComicRow
-                                        to={`/comic/${c.source}/${encodeURIComponent(c.id)}`}
-                                        cover={c.cover}
-                                        title={c.title}
-                                        subtitle={c.author || sourceTitle(c.source)}
-                                    />
-                                </SwipeRow>
-                            ),
-                            rightActions: [DELETE_ACTION],
-                        }))}
+                        items={favorites.map((c) => {
+                            const key = comicKey(c.source, c.id);
+                            const count = unreadCount(
+                                followStates[key] ?? null,
+                                progressAll[key] ?? null,
+                            );
+                            return {
+                                id: key,
+                                content: (
+                                    <SwipeRow>
+                                        <ComicRow
+                                            to={`/comic/${c.source}/${encodeURIComponent(c.id)}`}
+                                            cover={c.cover}
+                                            title={c.title}
+                                            subtitle={c.author || sourceTitle(c.source)}
+                                            badge={
+                                                count > 0 ? (
+                                                    <AnimatedBadge
+                                                        status="info"
+                                                        size="sm"
+                                                        showIcon={false}
+                                                    >
+                                                        {count > 99 ? "99+" : count}
+                                                    </AnimatedBadge>
+                                                ) : undefined
+                                            }
+                                        />
+                                    </SwipeRow>
+                                ),
+                                rightActions: [DELETE_ACTION],
+                            };
+                        })}
                         classNames={SWIPE_CLASSNAMES}
                         onAction={({ item }) => {
                             const comic = favorites.find(
