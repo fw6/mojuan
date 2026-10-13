@@ -1,0 +1,23 @@
+Cargo.toml
+  s_97ed3d6ad37641::t_86622f1a6a0664 18
+Cargo.lock
+  s_97ed3d6ad37641::t_786c9c117ae7e6 2407,2432
+apps/mojuan/src-tauri/tauri.conf.json
+  s_97ed3d6ad37641::t_29ff375312c641 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.49-trip",
+  "base_commit_sha": "7b05f32cb6a92c72f5c25f4bf7c7f813a6c97491",
+  "prompts": {},
+  "sessions": {
+    "s_97ed3d6ad37641": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_9989e9b2-5d2c-4f28-a929-b5d73f44a67f",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
