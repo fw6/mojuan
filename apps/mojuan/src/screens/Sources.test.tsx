@@ -47,6 +47,7 @@ const DEFAULT_SETTINGS = {
     followUpdate: true,
     lastSource: null as string | null,
     lastCategory: {} as Record<string, string>,
+    followCheckedAt: null as number | null,
 };
 
 function comic(over: Partial<Comic> = {}): Comic {

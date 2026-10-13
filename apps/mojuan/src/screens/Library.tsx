@@ -10,7 +10,9 @@ import {
     HardDrive,
     Heart,
     History,
+    RefreshCw,
     Trash2,
+    TriangleAlert,
 } from "lucide-react";
 import {
     scanLocal,
@@ -33,7 +35,7 @@ import {
 } from "../lib/storage/follow";
 import { getProgressAll, type ProgressRecord } from "../lib/storage/progress";
 import { unreadCount } from "../lib/follow";
-import { runFollowCheckNow } from "../lib/follow-check";
+import { runFollowCheckNow, type FollowCheckFailure } from "../lib/follow-check";
 import { usePageActive } from "../lib/page-active";
 import { chapterLabel } from "../lib/chapters";
 import { getSettings } from "../lib/storage/settings";
@@ -102,6 +104,9 @@ export default function Library() {
     // 追更：每部收藏的最近检查结果与阅读进度，角标由两者就地算出
     const [followStates, setFollowStates] = useState<Record<string, FollowRecord>>({});
     const [progressAll, setProgressAll] = useState<Record<string, ProgressRecord>>({});
+    // 最近一次检查没成功的作品与原因，页头据此提示；展开后逐条列出
+    const [failures, setFailures] = useState<FollowCheckFailure[]>([]);
+    const [failuresOpen, setFailuresOpen] = useState(false);
     const active = usePageActive();
 
     const refresh = useCallback(async () => {
@@ -128,7 +133,7 @@ export default function Library() {
     }, [refresh, tab]);
 
     // 进入书架跑一次检查（保留页的挂载 effect 不会重跑，靠 active 感知「又被打开了」）。
-    // 静默进行：不显示加载态；失败只留在结果里，呈现留给 #34。
+    // 静默进行：不显示加载态，角标就地出现；失败作品保留上一次的角标，只在页头汇总。
     useEffect(() => {
         if (!active) return;
         let cancelled = false;
@@ -138,9 +143,15 @@ export default function Library() {
                 // 先读回最新进度：读完最新一话回到书架，角标立刻归零，不等这次检查
                 const progress = await getProgressAll();
                 if (!cancelled) setProgressAll(progress);
-                await runFollowCheckNow(list);
+                const result = await runFollowCheckNow(list);
                 const states = await getFollowStates();
-                if (!cancelled) setFollowStates(states);
+                if (cancelled) return;
+                setFollowStates(states);
+                // 被节流跳过的那一次返回空结果：保留上一次的失败提示，不误报「都成功了」。
+                // 收藏非空却一部都没产出，只可能是没真正跑检查。
+                if (list.length === 0 || result.updated.length > 0 || result.failures.length > 0) {
+                    setFailures(result.failures);
+                }
             } catch (e) {
                 console.error("书架追更检查失败", e);
             }
@@ -149,6 +160,20 @@ export default function Library() {
             cancelled = true;
         };
     }, [active]);
+
+    /** 手动刷新追更：不受节流限制，跑完就地刷新角标与失败提示。 */
+    async function onRefreshFollow() {
+        try {
+            const list = await getFavorites();
+            const result = await runFollowCheckNow(list, { manual: true });
+            const [states, progress] = await Promise.all([getFollowStates(), getProgressAll()]);
+            setFollowStates(states);
+            setProgressAll(progress);
+            setFailures(result.failures);
+        } catch (e) {
+            toast.show(`刷新追更失败：${errorText(e)}`, "error");
+        }
+    }
 
     async function pickLocalDir() {
         try {
@@ -197,9 +222,74 @@ export default function Library() {
 
     return (
         <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-8">
-            <PageHeader title="书架" sub="看过的、收藏的、下载的都在这里" />
+            <PageHeader
+                title="书架"
+                sub="看过的、收藏的、下载的都在这里"
+                actions={
+                    <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => void onRefreshFollow()}
+                    >
+                        <RefreshCw className="size-3.5" />
+                        刷新追更
+                    </Button>
+                }
+            />
 
             {error && <Banner>读取本地数据失败：{error}</Banner>}
+
+            {failures.length > 0 && (
+                <div className="mb-4 overflow-hidden rounded-2xl border border-destructive/25 bg-destructive/8">
+                    <button
+                        type="button"
+                        onClick={() => setFailuresOpen((open) => !open)}
+                        aria-expanded={failuresOpen}
+                        className="flex w-full items-center gap-2.5 px-4 py-3 text-left text-sm text-foreground"
+                    >
+                        <TriangleAlert className="size-4 shrink-0 text-destructive" />
+                        <span className="flex-1">{failures.length} 部未检查成功</span>
+                        <motion.span
+                            animate={{ rotate: failuresOpen ? 180 : 0 }}
+                            transition={{ duration: 0.2, ease: EASE_OUT }}
+                            className="block shrink-0 text-muted-foreground"
+                        >
+                            <ChevronDown className="size-4" />
+                        </motion.span>
+                    </button>
+                    <AnimatePresence initial={false}>
+                        {failuresOpen && (
+                            <motion.div
+                                key="failures"
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: "auto", opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{
+                                    height: SPRING_PANEL,
+                                    opacity: { duration: 0.16, ease: EASE_OUT },
+                                }}
+                                className="overflow-hidden"
+                            >
+                                <ul className="flex flex-col gap-2.5 border-t border-destructive/20 px-4 py-3">
+                                    {failures.map((failure) => (
+                                        <li
+                                            key={comicKey(failure.source, failure.comicId)}
+                                            className="min-w-0"
+                                        >
+                                            <div className="truncate text-sm text-foreground">
+                                                {failure.title}
+                                            </div>
+                                            <div className="truncate text-xs text-muted-foreground">
+                                                {failure.reason}
+                                            </div>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
+            )}
 
             <Tabs
                 value={tab}

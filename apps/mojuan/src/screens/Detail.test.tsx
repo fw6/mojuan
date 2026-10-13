@@ -111,6 +111,7 @@ function settings(downloadDir: string | null): Settings {
         darkMode: false,
         autoTrim: false,
         followUpdate: true,
+        followCheckedAt: null,
         lastSource: null,
         lastCategory: {},
     };

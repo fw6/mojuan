@@ -90,6 +90,7 @@ function settings(over: Partial<Settings> = {}): Settings {
         followUpdate: true,
         lastSource: null,
         lastCategory: {},
+        followCheckedAt: null,
         ...over,
     };
 }
