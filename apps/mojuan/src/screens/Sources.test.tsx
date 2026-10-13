@@ -46,6 +46,7 @@ const DEFAULT_SETTINGS = {
     autoTrim: false,
     lastSource: null as string | null,
     lastCategory: {} as Record<string, string>,
+    followCheckedAt: null as number | null,
 };
 
 function comic(over: Partial<Comic> = {}): Comic {

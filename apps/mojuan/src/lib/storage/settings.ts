@@ -10,6 +10,8 @@ export interface Settings {
     lastSource: string | null;
     /** 每个源上次停留的分类标签：`{sourceId: label}`。 */
     lastCategory: Record<string, string>;
+    /** 书架追更最近一次自动检查的时刻（unix 毫秒）；null 表示还没检查过。手动刷新不写这里。 */
+    followCheckedAt: number | null;
     /** WebDAV 备份凭据（wayfinder #24/#25：明文存 settings，钥匙串后置）。 */
     webdav?: { baseUrl: string; user: string; password: string };
 }
@@ -20,6 +22,7 @@ const DEFAULT_SETTINGS: Settings = {
     autoTrim: false,
     lastSource: null,
     lastCategory: {},
+    followCheckedAt: null,
 };
 
 /** 下载目录默认值（grilling #6：~/Downloads/mojuan）。 */

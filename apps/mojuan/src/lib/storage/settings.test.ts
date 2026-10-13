@@ -20,6 +20,7 @@ describe("设置 settings", () => {
             autoTrim: false,
             lastSource: null,
             lastCategory: {},
+            followCheckedAt: null,
         });
     });
 
@@ -32,7 +33,13 @@ describe("设置 settings", () => {
             autoTrim: true,
             lastSource: null,
             lastCategory: {},
+            followCheckedAt: null,
         });
+    });
+
+    it("追更的最近检查时刻可读可写，默认 null", async () => {
+        await setSettings({ followCheckedAt: 1234 });
+        await expect(getSettings()).resolves.toMatchObject({ followCheckedAt: 1234 });
     });
 
     it("rememberDiscovery 记住浏览位置，不影响其他设置", async () => {

@@ -128,6 +128,7 @@ beforeEach(() => {
         autoTrim: false,
         lastSource: null,
         lastCategory: {},
+        followCheckedAt: null,
     });
     mockedHistory.mockResolvedValue([
         { comic: comic("a"), chapterIndex: 3, chapterTitle: "", lastReadAt: 2 },
@@ -208,6 +209,7 @@ describe("书架页的删除", () => {
             autoTrim: false,
             lastSource: null,
             lastCategory: {},
+            followCheckedAt: null,
         });
         mockedScan.mockResolvedValue(items);
         mockedDeleteDownloaded.mockResolvedValue(undefined);
@@ -233,6 +235,7 @@ describe("书架页的删除", () => {
             autoTrim: false,
             lastSource: null,
             lastCategory: {},
+            followCheckedAt: null,
         });
         mockedScan.mockResolvedValue([
             {
@@ -272,6 +275,7 @@ describe("书架页的删除", () => {
             autoTrim: false,
             lastSource: null,
             lastCategory: {},
+            followCheckedAt: null,
         });
         mockedScan.mockResolvedValue([
             {
@@ -421,6 +425,93 @@ describe("书架追更角标", () => {
         fireEvent.click(screen.getAllByRole("button", { name: "删除", hidden: true })[0]);
 
         await waitFor(() => expect(mockedRemoveFollowState).toHaveBeenCalledWith("mangadex", "x"));
+    });
+});
+
+describe("书架追更的失败呈现与手动刷新", () => {
+    function Harness({ active }: { active: boolean }) {
+        return (
+            <PageActiveContext.Provider value={active}>
+                <MemoryRouter initialEntries={["/library"]}>
+                    <ToastProvider>
+                        <Routes>
+                            <Route path="/library" element={<Library />} />
+                        </Routes>
+                    </ToastProvider>
+                </MemoryRouter>
+            </PageActiveContext.Provider>
+        );
+    }
+
+    it("页头显示「N 部未检查成功」，点开列出作品与原因", async () => {
+        mockedFavorites.mockResolvedValue([comic("x")]);
+        mockedRunCheck.mockResolvedValue({
+            updated: [],
+            failures: [
+                {
+                    source: "mangadex",
+                    comicId: "x",
+                    title: "作品 x",
+                    reason: "fetch(detail): HTTP 500",
+                },
+                { source: "mangadex", comicId: "y", title: "作品 y", reason: "没有取到章节" },
+            ],
+        });
+        renderLibrary();
+        await waitFor(() => expect(screen.getByText("2 部未检查成功")).toBeTruthy());
+        // 原因默认收着
+        expect(screen.queryByText("fetch(detail): HTTP 500")).toBeNull();
+
+        fireEvent.click(screen.getByRole("button", { name: /2 部未检查成功/ }));
+
+        expect(screen.getByText("作品 x")).toBeTruthy();
+        expect(screen.getByText("fetch(detail): HTTP 500")).toBeTruthy();
+        expect(screen.getByText("作品 y")).toBeTruthy();
+        expect(screen.getByText("没有取到章节")).toBeTruthy();
+    });
+
+    it("失败提示在任意 tab 都可见", async () => {
+        mockedFavorites.mockResolvedValue([comic("x")]);
+        mockedRunCheck.mockResolvedValue({
+            updated: [],
+            failures: [{ source: "mangadex", comicId: "x", title: "作品 x", reason: "HTTP 500" }],
+        });
+        renderLibrary();
+        await waitFor(() => expect(screen.getByText("1 部未检查成功")).toBeTruthy());
+
+        fireEvent.click(screen.getByRole("tab", { name: /下载/ }));
+
+        expect(screen.getByText("1 部未检查成功")).toBeTruthy();
+    });
+
+    it("被节流跳过的那一次不清空上一次的失败提示", async () => {
+        mockedFavorites.mockResolvedValue([comic("x")]);
+        mockedRunCheck.mockResolvedValueOnce({
+            updated: [],
+            failures: [{ source: "mangadex", comicId: "x", title: "作品 x", reason: "HTTP 500" }],
+        });
+        const { rerender } = render(<Harness active={true} />);
+        await waitFor(() => expect(screen.getByText("1 部未检查成功")).toBeTruthy());
+
+        // 第二次进书架被节流：结果为空，失败提示应当保留
+        mockedRunCheck.mockResolvedValueOnce({ updated: [], failures: [] });
+        rerender(<Harness active={false} />);
+        rerender(<Harness active={true} />);
+        await waitFor(() => expect(mockedRunCheck).toHaveBeenCalledTimes(2));
+
+        expect(screen.getByText("1 部未检查成功")).toBeTruthy();
+    });
+
+    it("手动刷新带 manual 选项，不受节流限制", async () => {
+        mockedFavorites.mockResolvedValue([comic("x")]);
+        renderLibrary();
+        await waitFor(() => expect(mockedRunCheck).toHaveBeenCalledTimes(1));
+
+        fireEvent.click(screen.getByRole("button", { name: /刷新追更/ }));
+
+        await waitFor(() =>
+            expect(mockedRunCheck).toHaveBeenCalledWith([comic("x")], { manual: true }),
+        );
     });
 });
 
