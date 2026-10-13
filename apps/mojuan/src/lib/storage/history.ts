@@ -32,3 +32,9 @@ export async function touchHistory(comic: Comic, chapterIndex: number): Promise<
         lastReadAt: nextTimestamp(),
     });
 }
+
+/** 删除一条历史（阅读位置不受影响，下次阅读会重新记下）。 */
+export async function removeHistory(source: string, comicId: string): Promise<void> {
+    const store = await getStore(FILES.history);
+    await store.delete(comicKey(source, comicId));
+}

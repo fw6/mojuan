@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("@tauri-apps/plugin-store", async () => (await import("./test-doubles")).storePlugin);
 
-import { getHistory, touchHistory } from "./history";
+import { getHistory, removeHistory, touchHistory } from "./history";
 import { resetDoubles, testComic } from "./test-doubles";
 
 beforeEach(() => {
@@ -26,5 +26,17 @@ describe("历史 history", () => {
         const list = await getHistory();
         expect(list.map((r) => r.comic.id)).toEqual(["a", "b"]);
         expect(list[0].chapterIndex).toBe(5);
+    });
+
+    it("remove 删掉一条，再读同一部会重新记下", async () => {
+        await touchHistory(testComic("a"), 1);
+        await touchHistory(testComic("b"), 2);
+        await removeHistory("mangadex", "a");
+        expect((await getHistory()).map((r) => r.comic.id)).toEqual(["b"]);
+
+        await touchHistory(testComic("a"), 3);
+        const list = await getHistory();
+        expect(list.map((r) => r.comic.id)).toEqual(["a", "b"]);
+        expect(list[0].chapterIndex).toBe(3);
     });
 });

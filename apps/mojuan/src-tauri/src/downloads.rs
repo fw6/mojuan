@@ -11,6 +11,9 @@ use tauri::{Emitter, Manager};
 /// 进度推送事件名（grilling #22 #6 定案；Channel 失效时的 emit 回退）。
 const DOWNLOAD_EVENT: &str = "download://progress";
 
+/// 队列结构变化的事件名（有作品被整组移除时广播，下载页据此重取快照）。
+const DOWNLOAD_CHANGED_EVENT: &str = "download://changed";
+
 /// 进度出口：持有订阅的 Channel，运行时经它把进度交给前端。
 pub struct DownloadSink {
     app: tauri::AppHandle,
@@ -112,4 +115,29 @@ pub fn retry_download(runtime: tauri::State<'_, DownloadRuntime>, task_id: Strin
 #[tauri::command]
 pub fn clear_downloads(runtime: tauri::State<'_, DownloadRuntime>) -> usize {
     runtime.clear_finished()
+}
+
+/// 删除某部作品的下载：先取消并移除该作品在下载队列里的任务（在途的页等它写完），
+/// 再删磁盘上的整目录。队列被移除的记录经 `download://changed` 广播——进度通道
+/// 只能表达单任务的状态变化，表达不了「这个作品整个没了」，下载页据此重取快照。
+#[tauri::command]
+pub async fn delete_downloaded(
+    app: tauri::AppHandle,
+    runtime: tauri::State<'_, DownloadRuntime>,
+    dir: String,
+    source: String,
+    comic_id: String,
+) -> Result<(), String> {
+    let runtime = (*runtime).clone();
+    let (dropped, deleted) = tauri::async_runtime::spawn_blocking(move || {
+        let dropped = runtime.drop_comic(&source, &comic_id);
+        let deleted = mojuan_core::delete_downloaded(&dir, &source, &comic_id);
+        (dropped, deleted)
+    })
+    .await
+    .map_err(|e| format!("删除下载异常终止: {e}"))?;
+    if dropped > 0 {
+        let _ = app.emit(DOWNLOAD_CHANGED_EVENT, ());
+    }
+    deleted.map(|_| ())
 }

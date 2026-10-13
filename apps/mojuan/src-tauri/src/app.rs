@@ -64,6 +64,7 @@ pub fn run() {
             downloads::cancel_download,
             downloads::retry_download,
             downloads::clear_downloads,
+            downloads::delete_downloaded,
             // Android OTA（桌面端走官方更新器，这条通道只在移动端注册）
             #[cfg(mobile)]
             crate::ota::ota_check,

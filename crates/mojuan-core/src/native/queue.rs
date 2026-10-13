@@ -6,6 +6,7 @@
 //! 并发（全局 2 页、章内顺序）、重试、取消检查与进度推送在 `native::download` 的运行时。
 
 use serde::Serialize;
+use std::collections::HashSet;
 
 /// 任务状态（grilling #22 #3）。
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
@@ -147,11 +148,17 @@ impl EnqueueResult {
 #[derive(Default)]
 pub struct DownloadQueue {
     tasks: Vec<DownloadTask>,
+    /// 已请求取消的 taskId。删除整部作品时任务记录随即消失，而 worker 还要在下一页边界
+    /// 停下，所以取消信号存在任务记录之外；重试或重新入队同一话时清掉。
+    cancelled: HashSet<String>,
 }
 
 impl DownloadQueue {
     pub fn new() -> Self {
-        Self { tasks: Vec::new() }
+        Self {
+            tasks: Vec::new(),
+            cancelled: HashSet::new(),
+        }
     }
 
     /// 入队：taskId 已存在 → AlreadyQueued；`already_downloaded`（调用方查磁盘）
@@ -164,6 +171,7 @@ impl DownloadQueue {
         if let Some(existing) = self.tasks.iter().find(|t| t.task_id == task.task_id) {
             return (EnqueueResult::AlreadyQueued, existing.to_progress());
         }
+        self.cancelled.remove(&task.task_id);
         if already_downloaded {
             let mut done = task;
             done.status = TaskStatus::Done;
@@ -213,6 +221,7 @@ impl DownloadQueue {
             TaskStatus::Queued | TaskStatus::Downloading
         ) {
             task.status = TaskStatus::Cancelled;
+            self.cancelled.insert(task_id.to_string());
         }
         Some(task.to_progress())
     }
@@ -224,6 +233,7 @@ impl DownloadQueue {
             task.status = TaskStatus::Queued;
             task.done = 0;
             task.error = None;
+            self.cancelled.remove(task_id);
         }
         Some(task.to_progress())
     }
@@ -237,11 +247,26 @@ impl DownloadQueue {
         before - self.tasks.len()
     }
 
+    /// 移除某部作品的全部任务（删除已下载漫画时同步清掉队列记录），返回被移除的 taskId。
+    /// 排队/下载中的任务先记下取消信号：记录随即消失，信号要留住，worker 才会在下一页边界停下。
+    pub fn remove_comic(&mut self, source: &str, comic_id: &str) -> Vec<String> {
+        let mut removed = Vec::new();
+        for task in &self.tasks {
+            if task.source == source && task.comic_id == comic_id {
+                if matches!(task.status, TaskStatus::Queued | TaskStatus::Downloading) {
+                    self.cancelled.insert(task.task_id.clone());
+                }
+                removed.push(task.task_id.clone());
+            }
+        }
+        self.tasks
+            .retain(|t| !(t.source == source && t.comic_id == comic_id));
+        removed
+    }
+
     /// 任务是否已被取消（worker 每页前检查，取消则中止）。
     pub fn is_cancelled(&self, task_id: &str) -> bool {
-        self.tasks
-            .iter()
-            .any(|t| t.task_id == task_id && t.status == TaskStatus::Cancelled)
+        self.cancelled.contains(task_id)
     }
 
     /// 全量快照（下载页初始加载）。
@@ -391,6 +416,47 @@ mod tests {
         assert!(!q.is_cancelled("a"));
         q.cancel("a");
         assert!(q.is_cancelled("a"));
+    }
+
+    #[test]
+    fn remove_comic_drops_its_tasks_and_keeps_the_cancel_signal() {
+        let mut q = DownloadQueue::new();
+        q.enqueue(task("a", 2), false);
+        q.next_queued(); // a 正在下载
+        let mut other = task("b", 2);
+        other.comic_id = "c2".to_string();
+        q.enqueue(other, false);
+        q.enqueue(task("c", 2), true); // 已完成的任务记录
+
+        let removed = q.remove_comic("webtoons", "c1");
+        assert_eq!(removed, vec!["a".to_string(), "c".to_string()]);
+        let ids: Vec<String> = q.snapshot().iter().map(|v| v.task_id.clone()).collect();
+        assert_eq!(ids, vec!["b"]);
+        // 记录没了，取消信号还在：worker 手里那份任务要在下一页边界停下
+        assert!(q.is_cancelled("a"));
+        assert!(!q.is_cancelled("b"));
+    }
+
+    #[test]
+    fn reenqueueing_a_removed_chapter_clears_the_cancel_signal() {
+        let mut q = DownloadQueue::new();
+        q.enqueue(task("a", 2), false);
+        q.remove_comic("webtoons", "c1");
+        assert!(q.is_cancelled("a"));
+
+        q.enqueue(task("a", 2), false);
+        assert!(!q.is_cancelled("a"));
+        assert_eq!(q.next_queued().unwrap().task_id, "a");
+    }
+
+    #[test]
+    fn retry_clears_the_cancel_signal() {
+        let mut q = DownloadQueue::new();
+        q.enqueue(task("a", 2), false);
+        q.cancel("a");
+        assert!(q.is_cancelled("a"));
+        q.retry("a");
+        assert!(!q.is_cancelled("a"));
     }
 
     #[test]

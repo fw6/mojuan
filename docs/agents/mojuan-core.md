@@ -95,11 +95,20 @@
   此刻的进度，`cancel`/`retry` 返回最新进度。`DownloadTask::new` 由队列层派生 taskId。
 - `files::download_image` 返回 `Result<(), String>`（失败原因来自 HTTP 状态与写盘错误）；
   整话失败时原因写进进度事件的 `error`（`第 N 页下载失败：<原因>`）。
+- 删除整部作品：`DownloadRuntime::drop_comic` 先把该作品的任务从队列移除，再等 worker 从当前页
+  退出（`in_flight` 登记 + `drained` 通知），返回后调用方才删磁盘目录——早一步的话 worker 会把
+  刚删掉的章节写回来。取消信号存在队列的 `cancelled` 集合里而不是任务状态里：任务记录被移除之后
+  worker 仍要凭它在下一页边界停下（`retry` 与重新入队同一话时清掉）。
+- `files::delete_downloaded` 删的是 `<dir>/<source>/<comicId>` 整目录（含 `download_index.json`），
+  路径由 `comic_dir` 唯一决定，并校验目标严格落在下载目录之内；目录本就不存在返回 `Ok(false)`。
 
 ## 命令 API 约定
 
 - 公开函数接收 `&str`、返回 JSON 字符串，无 uniffi 包装。
 - 命令层直接传 `&s` 或 `s.as_str()`，不要建 String 参数签名。
+- `delete_downloaded`（src-tauri 的 `downloads`）把队列与磁盘串成一次操作：先 `drop_comic`，
+  再删目录；有任务被移除时广播 `download://changed`——进度通道只能表达单个任务的状态变化，
+  表达不了「这部作品整个没了」，下载页据此重取快照。
 
 ## 开发工作流与测试
 

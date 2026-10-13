@@ -84,6 +84,25 @@ beui registry 里没有可用于远程搜索的现成组件：`morphing-search` 
 
 按存储域一个文件：`store.ts` 是底层（桌面 store 插件与移动端 fs 的平台切换、每文件一个 Store 实例、跨域键规则 `comicKey`），`fs.ts` 是移动端实现（接口与 `@tauri-apps/plugin-store` 的 IStore 一致），上面是 `progress.ts`、`history.ts`、`favorites.ts`、`settings.ts`、`sources.ts`（已装源 + 安装顺序 + 源运行时 + 同步单例 `whenSourcesReady` + 源进程内缓存的持久化）、`backup.ts`（WebDAV 备份/恢复，跨收藏、历史、进度三域读）。每个域一个 JSON 文件（`store.ts` 的 `FILES`），消费方按域直接导入，没有统一出口。
 
+## 书架页的列表与删除（`src/screens/Library.tsx`）
+
+历史、收藏、下载三个 tab 的行用 beui 的 `swipeable-list`（`components/beui/swipeable-list.tsx`）承载，
+横向滑动露出右侧的「删除」。删除各走各的域：历史 `removeHistory`、收藏 `removeFavorite`（都只动自己那一个键，
+阅读位置与历史互不牵连）、下载 `deleteDownloaded(dir, source, comicId)` 命令（队列记录 + 磁盘整目录）。
+删除后按 id 就地过滤本地列表，不重取；失败弹错误提示、列表不动。「本地文件」tab 扫的是用户自己挑的文件夹，
+不属于应用管理的数据，`DirList` 不传 `onDelete` 时退回不带滑动的普通列表。
+
+行的卡片外观由行内容自己给（`ComicRow` 或章节折叠块），滑动的外壳用 `classNames` 去掉自带的边框、底色与内边距，
+只留裁切与轨道底色，圆角取设计系统的 12px。
+
+滑动行的内容外面套一层 `SwipeRow`：横向拖动之后落下的那一次点击不算点击。motion 的拖动不吞掉随后的
+`click` 事件，行里又都是可导航的链接与可展开的按钮，「拖了一下但没拉开」会变成一次误触的跳转或展开，
+所以外壳在指针按下后记录起点、移动超过 6px 就拦掉这一次点击。
+
+下载页（`Downloads.tsx`）在别处整组移除作品后要重取快照：进度通道只能表达单个任务的状态变化，
+表达不了「这部作品整个没了」，所以 Rust 侧在有任务被移除时广播 `download://changed`，页面 `listen` 它并刷新
+（页面是保留的，切页不重挂载，只靠初始快照会一直显示已经删掉的记录）。
+
 ## 数据加载与结果缓存（stale-while-revalidate）
 
 列表与详情的抓取结果由 Rust 侧缓存（`crawler/result_cache.rs`，见 `docs/agents/mojuan-core.md`），
@@ -151,3 +170,12 @@ node apps/mojuan/scripts/audit-contrast.mjs               # 逐路由扫文字�
 ```
 
 界面状态的判断走结构化文本（DOM、计算样式、可访问属性），不要用截图判断布局。改了配色或文字层级之后跑一次 `audit-contrast.mjs`。
+
+窗口在后台时 webview 的 `requestAnimationFrame` 停摆（`document.visibilityState` 为 `hidden`）：motion 的动画、
+`frame.postRender` 排的回调都不跑，拖动停在按下那一刻的位移上，永远不结算。所以量动效或拖动结果之前要先把
+窗口置前——`osascript -e 'tell application "System Events" to set frontmost of (first application process whose name is "mojuan") to true'`，
+并且激活与后面的探测放在同一条命令里：焦点会在两次工具调用之间被抢回去。
+
+拖动、点击这类交互可以用合成的 `PointerEvent` 驱动（真实鼠标事件按不住）：事件要派发在指针下面的那个元素上
+（行内容的链接或按钮），不是 `window`——motion 的监听挂在 window 的捕获阶段，两种都能收到，但应用自己挂在
+元素上的处理器只认前者。一次探测返回时动画还没结算，拖动与读结果要分成两次探测，中间留一秒多。

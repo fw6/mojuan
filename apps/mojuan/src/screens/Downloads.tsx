@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Channel } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { AnimatePresence, motion } from "motion/react";
 import { ChevronDown, Download, RotateCcw, Trash2 } from "lucide-react";
 import {
     cancelDownload,
     clearDownloads,
+    DOWNLOADS_CHANGED_EVENT,
     getDownloads,
     retryDownload,
     subscribeDownloads,
@@ -100,6 +102,16 @@ export default function Downloads() {
             setTasks(list);
         });
     }, []);
+
+    // 别处整组移除了一部作品（书架「下载」tab 删除）：进度通道表达不了这件事，
+    // 页面又是保留的（切页不重挂载），只靠初始快照会一直显示已经删掉的记录。
+    useEffect(() => {
+        let unlisten: (() => void) | undefined;
+        void listen(DOWNLOADS_CHANGED_EVENT, refresh).then((off) => {
+            unlisten = off;
+        });
+        return () => unlisten?.();
+    }, [refresh]);
 
     async function onCancel(taskId: string) {
         await cancelDownload(taskId);

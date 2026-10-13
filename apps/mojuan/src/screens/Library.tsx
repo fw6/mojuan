@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { open } from "@tauri-apps/plugin-dialog";
 import { AnimatePresence, motion } from "motion/react";
@@ -10,16 +10,18 @@ import {
     HardDrive,
     Heart,
     History,
+    Trash2,
 } from "lucide-react";
 import {
     scanLocal,
     listDownloaded,
+    deleteDownloaded,
     type Comic,
     type LocalComic,
     type DownloadedPage,
 } from "../api";
-import { getFavorites } from "../lib/storage/favorites";
-import { getHistory, type HistoryRecord } from "../lib/storage/history";
+import { getFavorites, removeFavorite } from "../lib/storage/favorites";
+import { getHistory, removeHistory, type HistoryRecord } from "../lib/storage/history";
 import { getSettings } from "../lib/storage/settings";
 import { comicKey } from "../lib/storage/store";
 import { cn } from "../lib/utils";
@@ -30,6 +32,11 @@ import { useToast } from "../components/toast";
 import { Button } from "../components/beui/button";
 import { Tabs, TabsList, TabsTrigger } from "../components/beui/tabs";
 import { AnimatedBadge } from "../components/beui/animated-badge";
+import {
+    SwipeableList,
+    type SwipeAction,
+    type SwipeableListClassNames,
+} from "../components/beui/swipeable-list";
 
 type Tab = "history" | "favorites" | "downloads" | "local";
 
@@ -39,6 +46,26 @@ const TABS: { id: Tab; label: string; icon: typeof Clock }[] = [
     { id: "downloads", label: "下载", icon: Download },
     { id: "local", label: "本地文件", icon: FolderOpen },
 ];
+
+/** 横向滑动露出的一枚动作（三种列表共用）。 */
+const DELETE_ACTION: SwipeAction = {
+    id: "delete",
+    label: "删除",
+    icon: <Trash2 className="size-4" />,
+    tone: "danger",
+};
+
+/** 行的卡片外观由行内容自己给（列表行 / 章节折叠块），滑动外壳只负责裁切与轨道底色。
+ * 外壳铺 `card` 底而不是透明：行内容进场时会位移与淡入，透明的话轨道底色（`muted`）会从
+ * 行底下透出来。 */
+const SWIPE_CLASSNAMES: SwipeableListClassNames = {
+    item: "rounded-lg",
+    rail: "rounded-lg",
+    surface: "min-h-0 rounded-lg border-0 bg-card p-0 shadow-none",
+};
+
+/** 指针移动多少像素之后，落下的那一次点击不再算点击。 */
+const DRAG_SLOP = 6;
 
 export default function Library() {
     const toast = useToast();
@@ -83,6 +110,38 @@ export default function Library() {
         }
     }
 
+    async function onDeleteHistory(record: HistoryRecord) {
+        const { source, id } = record.comic;
+        try {
+            await removeHistory(source, id);
+            setHistory((list) => list?.filter((h) => !sameComic(h.comic, record.comic)) ?? list);
+            toast.show("已删除这条历史", "success");
+        } catch (e) {
+            toast.show(`删除历史失败：${errorText(e)}`, "error");
+        }
+    }
+
+    async function onDeleteFavorite(comic: Comic) {
+        try {
+            await removeFavorite(comic.source, comic.id);
+            setFavorites((list) => list?.filter((c) => !sameComic(c, comic)) ?? list);
+            toast.show("已取消收藏", "success");
+        } catch (e) {
+            toast.show(`取消收藏失败：${errorText(e)}`, "error");
+        }
+    }
+
+    async function onDeleteDownload(item: LocalComic) {
+        if (!downloadDir) return;
+        try {
+            await deleteDownloaded(downloadDir, item.source, item.comicId);
+            setDownloads((list) => list?.filter((d) => !sameLocal(d, item)) ?? list);
+            toast.show("已删除下载", "success");
+        } catch (e) {
+            toast.show(`删除下载失败：${errorText(e)}`, "error");
+        }
+    }
+
     return (
         <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-8">
             <PageHeader title="书架" sub="看过的、收藏的、下载的都在这里" />
@@ -120,23 +179,35 @@ export default function Library() {
                         hint="去「发现」挑一部开始看，进度会自动记下"
                     />
                 ) : (
-                    <div className="flex flex-col gap-2">
-                        {history.map((h) => (
-                            <ComicRow
-                                key={comicKey(h.comic.source, h.comic.id)}
-                                to={`/comic/${h.comic.source}/${encodeURIComponent(h.comic.id)}`}
-                                cover={h.comic.cover}
-                                title={h.comic.title}
-                                subtitle={h.comic.author || sourceTitle(h.comic.source)}
-                                meta={`读到第 ${h.chapterIndex} 话`}
-                                badge={
-                                    <AnimatedBadge status="info" size="sm">
-                                        第 {h.chapterIndex} 话
-                                    </AnimatedBadge>
-                                }
-                            />
-                        ))}
-                    </div>
+                    <SwipeableList
+                        items={history.map((h) => ({
+                            id: comicKey(h.comic.source, h.comic.id),
+                            content: (
+                                <SwipeRow>
+                                    <ComicRow
+                                        to={`/comic/${h.comic.source}/${encodeURIComponent(h.comic.id)}`}
+                                        cover={h.comic.cover}
+                                        title={h.comic.title}
+                                        subtitle={h.comic.author || sourceTitle(h.comic.source)}
+                                        meta={`读到第 ${h.chapterIndex} 话`}
+                                        badge={
+                                            <AnimatedBadge status="info" size="sm">
+                                                第 {h.chapterIndex} 话
+                                            </AnimatedBadge>
+                                        }
+                                    />
+                                </SwipeRow>
+                            ),
+                            rightActions: [DELETE_ACTION],
+                        }))}
+                        classNames={SWIPE_CLASSNAMES}
+                        onAction={({ item }) => {
+                            const record = history.find(
+                                (h) => comicKey(h.comic.source, h.comic.id) === item.id,
+                            );
+                            if (record) void onDeleteHistory(record);
+                        }}
+                    />
                 ))}
 
             {tab === "favorites" &&
@@ -149,17 +220,29 @@ export default function Library() {
                         hint="在作品页点「收藏」，就会出现在这里"
                     />
                 ) : (
-                    <div className="flex flex-col gap-2">
-                        {favorites.map((c) => (
-                            <ComicRow
-                                key={comicKey(c.source, c.id)}
-                                to={`/comic/${c.source}/${encodeURIComponent(c.id)}`}
-                                cover={c.cover}
-                                title={c.title}
-                                subtitle={c.author || sourceTitle(c.source)}
-                            />
-                        ))}
-                    </div>
+                    <SwipeableList
+                        items={favorites.map((c) => ({
+                            id: comicKey(c.source, c.id),
+                            content: (
+                                <SwipeRow>
+                                    <ComicRow
+                                        to={`/comic/${c.source}/${encodeURIComponent(c.id)}`}
+                                        cover={c.cover}
+                                        title={c.title}
+                                        subtitle={c.author || sourceTitle(c.source)}
+                                    />
+                                </SwipeRow>
+                            ),
+                            rightActions: [DELETE_ACTION],
+                        }))}
+                        classNames={SWIPE_CLASSNAMES}
+                        onAction={({ item }) => {
+                            const comic = favorites.find(
+                                (c) => comicKey(c.source, c.id) === item.id,
+                            );
+                            if (comic) void onDeleteFavorite(comic);
+                        }}
+                    />
                 ))}
 
             {tab === "downloads" &&
@@ -178,7 +261,11 @@ export default function Library() {
                         hint="在作品页选中章节下载，没网也能看"
                     />
                 ) : (
-                    <DirList dir={downloadDir} items={downloads} />
+                    <DirList
+                        dir={downloadDir}
+                        items={downloads}
+                        onDelete={(item) => void onDeleteDownload(item)}
+                    />
                 ))}
 
             {tab === "local" && (
@@ -224,8 +311,64 @@ function errorText(e: unknown): string {
     return "未知错误";
 }
 
-/** 下载/本地漫画列表（wayfinder #19）：点漫画就地展开章节，点章节进本地阅读器。 */
-function DirList({ dir, items }: { dir: string; items: LocalComic[] }) {
+function sameComic(a: Comic, b: Comic): boolean {
+    return a.source === b.source && a.id === b.id;
+}
+
+function sameLocal(a: LocalComic, b: LocalComic): boolean {
+    return a.source === b.source && a.comicId === b.comicId;
+}
+
+function localKey(item: LocalComic): string {
+    return comicKey(item.source, item.comicId);
+}
+
+/**
+ * 滑动行的内容外壳：横向拖动之后落下的那一次点击不算点击。
+ * 行里是可导航的链接与可展开的按钮，而 motion 的拖动不会吞掉随后的 click 事件，
+ * 「拖了一下但没拉开」于是会变成一次误触的跳转或展开。
+ */
+function SwipeRow({ children }: { children: ReactNode }) {
+    const moved = useRef(false);
+    const origin = useRef<{ x: number; y: number } | null>(null);
+    return (
+        <div
+            onPointerDownCapture={(e) => {
+                origin.current = { x: e.clientX, y: e.clientY };
+                moved.current = false;
+            }}
+            onPointerMoveCapture={(e) => {
+                const from = origin.current;
+                if (from && Math.hypot(e.clientX - from.x, e.clientY - from.y) > DRAG_SLOP) {
+                    moved.current = true;
+                }
+            }}
+            onClickCapture={(e) => {
+                if (!moved.current) return;
+                e.preventDefault();
+                e.stopPropagation();
+                moved.current = false;
+            }}
+        >
+            {children}
+        </div>
+    );
+}
+
+/**
+ * 下载/本地漫画列表（wayfinder #19）：点漫画就地展开章节，点章节进本地阅读器。
+ * 传了 `onDelete` 的行可以左滑露出删除（下载 tab；「本地文件」扫描的是用户自己挑的
+ * 文件夹，不属于应用管理的数据，不提供删除）。
+ */
+function DirList({
+    dir,
+    items,
+    onDelete,
+}: {
+    dir: string;
+    items: LocalComic[];
+    onDelete?: (item: LocalComic) => void;
+}) {
     const toast = useToast();
     const [expanded, setExpanded] = useState<string | null>(null);
     const [chapters, setChapters] = useState<
@@ -248,84 +391,98 @@ function DirList({ dir, items }: { dir: string; items: LocalComic[] }) {
         }
     }
 
-    return (
-        <div className="flex flex-col gap-2">
-            {items.map((d) => {
-                const key = `${d.source}:${d.comicId}`;
-                const chs = chapters[key];
-                const isOpen = expanded === key;
-                return (
-                    <div
-                        key={key}
-                        className={cn(
-                            "overflow-hidden rounded-lg border bg-card transition-colors",
-                            isOpen ? "border-primary/40" : "border-border",
-                        )}
-                    >
-                        <button
-                            type="button"
-                            onClick={() => void toggle(key, d)}
-                            aria-expanded={isOpen}
-                            className="flex w-full items-center justify-between gap-3 p-3.5 text-left transition-colors hover:bg-secondary/50"
-                        >
-                            <div className="min-w-0">
-                                <div className="truncate text-sm font-medium text-foreground">
-                                    {d.comicId}
-                                </div>
-                                <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                                    <Tag>{sourceTitle(d.source)}</Tag>
-                                    <span>{d.chapterCount} 话</span>
-                                </div>
-                            </div>
-                            <motion.span
-                                animate={{ rotate: isOpen ? 180 : 0 }}
-                                transition={{ duration: 0.2, ease: EASE_OUT }}
-                                className="text-muted-foreground"
-                            >
-                                <ChevronDown className="size-4" />
-                            </motion.span>
-                        </button>
-                        <AnimatePresence initial={false}>
-                            {isOpen && (
-                                <motion.div
-                                    key="content"
-                                    initial={{ height: 0, opacity: 0 }}
-                                    animate={{ height: "auto", opacity: 1 }}
-                                    exit={{ height: 0, opacity: 0 }}
-                                    transition={{
-                                        height: SPRING_PANEL,
-                                        opacity: { duration: 0.16, ease: EASE_OUT },
-                                    }}
-                                    className="overflow-hidden"
-                                >
-                                    <div className="flex flex-col gap-0.5 px-2.5 pb-2.5">
-                                        {chs === undefined ? (
-                                            <span className="px-2 py-2 text-xs text-muted-foreground">
-                                                正在加载章节…
-                                            </span>
-                                        ) : (
-                                            Object.entries(chs).map(
-                                                ([idx, pages]) => (
-                                                    <Link
-                                                        key={idx}
-                                                        to={`/local/${d.source}/${encodeURIComponent(d.comicId)}/${idx}`}
-                                                        className="flex items-center justify-between rounded-xl px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                                                    >
-                                                        <span>第 {idx} 话</span>
-                                                        <span className="text-xs">
-                                                            {pages.length} 页
-                                                        </span>
-                                                    </Link>
-                                                ),
-                                            )
-                                        )}
-                                    </div>
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
+    /** 一部作品的折叠块（组头 + 展开后的章节），两种列表形态共用同一份。 */
+    function accordion(d: LocalComic) {
+        const key = localKey(d);
+        const chs = chapters[key];
+        const isOpen = expanded === key;
+        return (
+            <div
+                key={key}
+                className={cn(
+                    "overflow-hidden rounded-lg border bg-card transition-colors",
+                    isOpen ? "border-primary/40" : "border-border",
+                )}
+            >
+                <button
+                    type="button"
+                    onClick={() => void toggle(key, d)}
+                    aria-expanded={isOpen}
+                    className="flex w-full items-center justify-between gap-3 p-3.5 text-left transition-colors hover:bg-secondary/50"
+                >
+                    <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-foreground">
+                            {d.comicId}
+                        </div>
+                        <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                            <Tag>{sourceTitle(d.source)}</Tag>
+                            <span>{d.chapterCount} 话</span>
+                        </div>
                     </div>
-                );
-            })}
-        </div>
+                    <motion.span
+                        animate={{ rotate: isOpen ? 180 : 0 }}
+                        transition={{ duration: 0.2, ease: EASE_OUT }}
+                        className="text-muted-foreground"
+                    >
+                        <ChevronDown className="size-4" />
+                    </motion.span>
+                </button>
+                <AnimatePresence initial={false}>
+                    {isOpen && (
+                        <motion.div
+                            key="content"
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{
+                                height: SPRING_PANEL,
+                                opacity: { duration: 0.16, ease: EASE_OUT },
+                            }}
+                            className="overflow-hidden"
+                        >
+                            <div className="flex flex-col gap-0.5 px-2.5 pb-2.5">
+                                {chs === undefined ? (
+                                    <span className="px-2 py-2 text-xs text-muted-foreground">
+                                        正在加载章节…
+                                    </span>
+                                ) : (
+                                    Object.entries(chs).map(([idx, pages]) => (
+                                        <Link
+                                            key={idx}
+                                            to={`/local/${d.source}/${encodeURIComponent(d.comicId)}/${idx}`}
+                                            className="flex items-center justify-between rounded-xl px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                                        >
+                                            <span>第 {idx} 话</span>
+                                            <span className="text-xs">
+                                                {pages.length} 页
+                                            </span>
+                                        </Link>
+                                    ))
+                                )}
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </div>
+        );
+    }
+
+    if (!onDelete) {
+        return <div className="flex flex-col gap-2">{items.map((d) => accordion(d))}</div>;
+    }
+
+    return (
+        <SwipeableList
+            items={items.map((d) => ({
+                id: localKey(d),
+                content: <SwipeRow>{accordion(d)}</SwipeRow>,
+                rightActions: [DELETE_ACTION],
+            }))}
+            classNames={SWIPE_CLASSNAMES}
+            onAction={({ item }) => {
+                const target = items.find((d) => localKey(d) === item.id);
+                if (target) onDelete(target);
+            }}
+        />
     );
 }

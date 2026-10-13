@@ -65,6 +65,11 @@ pub fn scan_local(dir: &str) -> String {
     native::files::scan_local(dir)
 }
 
+/// 删除某漫画的下载（整目录，含下载索引与全部章节）。目录本就不存在返回 `Ok(false)`。
+pub fn delete_downloaded(dir: &str, source: &str, comic_id: &str) -> Result<bool, String> {
+    native::files::delete_downloaded(dir, source, comic_id)
+}
+
 // 下载运行时（wayfinder #20/#22）：队列状态机、并发、重试、取消与进度推送同处 core；
 // 宿主只接页面下载（core 已内置）与进度出口（构造时传入的回调）。
 pub use native::download::{DownloadRuntime, PageDownloader, ProgressSink, DEFAULT_WORKERS};

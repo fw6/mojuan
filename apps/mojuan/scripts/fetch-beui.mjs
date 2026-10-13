@@ -38,6 +38,7 @@ const FILES = [
     "components/motion/scroll-reveal.tsx",
     "components/motion/shared-layout-bg.tsx",
     "components/motion/smooth-scroll.tsx",
+    "components/motion/swipeable-list.tsx",
     "components/motion/switch.tsx",
     "components/motion/tabs.tsx",
     "components/motion/theme-toggle.tsx",

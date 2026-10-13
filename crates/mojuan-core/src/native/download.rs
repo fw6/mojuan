@@ -9,7 +9,8 @@ use crate::native::files;
 use crate::native::queue::{
     DownloadProgress, DownloadQueue, DownloadTask, DownloadTaskView, EnqueueResult,
 };
-use std::sync::{Arc, Mutex};
+use std::collections::HashSet;
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 /// 全局页并发（grilling #22 #2：全局 2 页并发、章内顺序）→ 起 2 个 worker。
@@ -32,6 +33,10 @@ struct Inner {
     downloader: PageDownloader,
     page_attempts: usize,
     progress: ProgressSink,
+    /// 正在 worker 手里的任务 id（`run_task` 进入时登记、退出时清除）。
+    in_flight: Mutex<HashSet<String>>,
+    /// `in_flight` 变化的通知：删除整部作品要等页写完，才能删磁盘上的目录。
+    drained: Condvar,
 }
 
 /// 下载运行时：入队 / 取消 / 重试 / 清空 / 快照，状态变化经进度出口交出。
@@ -55,6 +60,8 @@ impl DownloadRuntime {
                 downloader,
                 page_attempts: DEFAULT_PAGE_ATTEMPTS,
                 progress,
+                in_flight: Mutex::new(HashSet::new()),
+                drained: Condvar::new(),
             }),
         }
     }
@@ -96,6 +103,22 @@ impl DownloadRuntime {
         self.inner.queue.lock().unwrap().clear_finished()
     }
 
+    /// 移除某部作品的全部下载记录：在途任务发取消信号，等 worker 从当前页退出后返回。
+    /// 返回后调用方才可以删磁盘上的目录——早一步的话，worker 会把刚删掉的章节写回来。
+    pub fn drop_comic(&self, source: &str, comic_id: &str) -> usize {
+        let removed = self
+            .inner
+            .queue
+            .lock()
+            .unwrap()
+            .remove_comic(source, comic_id);
+        let mut in_flight = self.inner.in_flight.lock().unwrap();
+        while in_flight.iter().any(|id| removed.contains(id)) {
+            in_flight = self.inner.drained.wait(in_flight).unwrap();
+        }
+        removed.len()
+    }
+
     /// 全量快照（下载页初始加载，含展示字段）。
     pub fn snapshot(&self) -> Vec<DownloadTaskView> {
         self.inner.queue.lock().unwrap().snapshot()
@@ -113,13 +136,14 @@ impl DownloadRuntime {
     }
 
     /// 一话的下载流程：章内按页顺序，单页失败重试 `page_attempts` 次；
-    /// 每页开始前检查取消（取消由 cancel 置状态，worker 据此中止）。
+    /// 每页开始前检查取消（取消由 cancel 或删除整部作品置位，worker 据此中止）。
     fn run_task(&self, task: DownloadTask) {
         let id = task.task_id.clone();
+        self.inner.in_flight.lock().unwrap().insert(id.clone());
         self.emit(task.to_progress()); // downloading
         for (page, _) in task.urls.iter().enumerate() {
             if self.inner.queue.lock().unwrap().is_cancelled(&id) {
-                return; // 已取消：状态已置 cancelled，不再下载后续页
+                break; // 已取消：状态已置 cancelled，不再下载后续页
             }
             let mut failure = String::new();
             let mut ok = false;
@@ -145,9 +169,13 @@ impl DownloadRuntime {
                 self.emit(progress);
             }
             if !ok {
-                return;
+                break;
             }
         }
+        // 退出：清在途标记并唤醒等待者（删除整部作品的调用靠它确认页已写完）
+        let mut in_flight = self.inner.in_flight.lock().unwrap();
+        in_flight.remove(&id);
+        self.inner.drained.notify_all();
     }
 
     /// 进度出口在不持队列锁时调用（回调会回到宿主的订阅状态里取 Channel）。
@@ -363,5 +391,45 @@ mod tests {
         assert_eq!(view.done, 1);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn drop_comic_waits_for_the_in_flight_page_before_returning() {
+        let (_seen, sink) = collector();
+        let (started_tx, started_rx) = std::sync::mpsc::channel::<()>();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let release_rx = Mutex::new(release_rx);
+        let runtime = DownloadRuntime::with_downloader(
+            Box::new(move |_task: &DownloadTask, page: usize| {
+                if page == 0 {
+                    started_tx.send(()).unwrap();
+                    release_rx.lock().unwrap().recv().unwrap();
+                }
+                Ok(())
+            }),
+            sink,
+        );
+
+        runtime.enqueue(task(2, "/nonexistent-mojuan-dir"));
+        let worker = {
+            let runtime = runtime.clone();
+            std::thread::spawn(move || runtime.run_task(take_next(&runtime)))
+        };
+        started_rx.recv().unwrap(); // 第一页正在下载
+
+        let dropper = {
+            let runtime = runtime.clone();
+            std::thread::spawn(move || runtime.drop_comic("webtoons", "c1"))
+        };
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(
+            !dropper.is_finished(),
+            "drop_comic 在第一页写完前就返回了：调用方会删掉 worker 马上要写回的章节"
+        );
+
+        release_tx.send(()).unwrap();
+        assert_eq!(dropper.join().unwrap(), 1);
+        assert!(runtime.snapshot().is_empty());
+        worker.join().unwrap();
     }
 }

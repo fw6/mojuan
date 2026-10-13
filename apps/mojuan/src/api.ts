@@ -150,6 +150,15 @@ export const retryDownload = (taskId: string): Promise<DownloadProgress | null> 
 /** 清空已完成（done/failed/cancelled），返回移除数量。 */
 export const clearDownloads = () => invoke<number>("clear_downloads");
 
+/** 删除某漫画的下载：磁盘上的整目录（含下载索引与全部章节）与该作品在下载队列里的记录。
+ * 在途的章节先取消，等当前页写完才删目录。 */
+export const deleteDownloaded = (dir: string, source: string, comicId: string) =>
+    invoke<void>("delete_downloaded", { dir, source, comicId });
+
+/** 下载队列结构变化的事件名（有作品被整组移除）。进度通道只能表达单任务的状态变化，
+ * 表达不了「这个作品整个没了」，下载页据此重取快照。 */
+export const DOWNLOADS_CHANGED_EVENT = "download://changed";
+
 /** 某源最近一次错误（wayfinder #17：Sources 错误行 / Settings 源区）。 */
 export interface SourceError {
     message: string;

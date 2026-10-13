@@ -78,6 +78,27 @@ pub fn list_downloaded(dir: &str, source: &str, comic_id: &str) -> String {
     download_index::list_downloaded_with_urls(dir, source, comic_id)
 }
 
+/// 删除某漫画的下载：整目录（含下载索引与全部章节）。
+/// 目标由 `comic_dir` 唯一决定，必须严格落在下载目录之内，否则拒绝；
+/// 目录本就不存在返回 `Ok(false)`。
+pub fn delete_downloaded(dir: &str, source: &str, comic_id: &str) -> Result<bool, String> {
+    let base = Path::new(dir);
+    let target = comic_dir(dir, source, comic_id);
+    if dir.is_empty()
+        || source.is_empty()
+        || comic_id.is_empty()
+        || target == base
+        || !target.starts_with(base)
+    {
+        return Err(format!("拒绝删除 {}：不在下载目录内", target.display()));
+    }
+    match fs::remove_dir_all(&target) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(format!("删除 {} 失败: {e}", target.display())),
+    }
+}
+
 /// 该目录下的章节目录数（仅 chapter_* 前缀）。
 fn chapter_count(comic_path: &Path) -> i64 {
     fs::read_dir(comic_path)
@@ -204,6 +225,43 @@ mod tests {
         let flat: Value = serde_json::from_str(&list_downloaded(dir.to_str().unwrap(), "local", "comic-c")).unwrap();
         assert_eq!(flat["4"].as_array().unwrap().len(), 1);
         assert_eq!(flat["4"][0]["path"], "chapter_4/0.webp");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn delete_downloaded_removes_only_that_comic() {
+        let dir = temp_dir("delete");
+        let base = dir.to_str().unwrap();
+        fs::create_dir_all(dir.join("webtoons").join("comic-a").join("chapter_1")).unwrap();
+        fs::write(dir.join("webtoons").join("comic-a").join("chapter_1").join("0.jpg"), b"x").unwrap();
+        fs::create_dir_all(dir.join("webtoons").join("comic-b").join("chapter_1")).unwrap();
+        fs::create_dir_all(dir.join("comic-c").join("chapter_4")).unwrap();
+
+        assert_eq!(delete_downloaded(base, "webtoons", "comic-a"), Ok(true));
+        assert!(!dir.join("webtoons").join("comic-a").exists());
+        assert!(dir.join("webtoons").join("comic-b").exists());
+        assert!(dir.join("comic-c").exists());
+        // 已删过的目录再删一次：没有可删的东西，不是错误
+        assert_eq!(delete_downloaded(base, "webtoons", "comic-a"), Ok(false));
+
+        // 扁平条目（source = "local"）落在下载目录的下一层
+        assert_eq!(delete_downloaded(base, "local", "comic-c"), Ok(true));
+        assert!(!dir.join("comic-c").exists());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn delete_downloaded_refuses_paths_outside_the_download_dir() {
+        let dir = temp_dir("delete-guard");
+        let base = dir.to_str().unwrap();
+        fs::create_dir_all(&dir).unwrap();
+
+        assert!(delete_downloaded(base, "webtoons", "").is_err());
+        assert!(delete_downloaded(base, "", "comic-a").is_err());
+        assert!(delete_downloaded("", "webtoons", "comic-a").is_err());
+        assert!(dir.exists());
 
         let _ = fs::remove_dir_all(&dir);
     }
