@@ -60,9 +60,15 @@ pub fn list_downloaded(dir: &str, source: &str, comic_id: &str) -> String {
     native::files::list_downloaded(dir, source, comic_id)
 }
 
-/// 扫描本地已下载漫画：返回 JSON `[{source, comicId, chapterCount}]`（兼容命名空间与扁平布局）。
+/// 扫描本地已下载漫画：返回 JSON `[{source, comicId, chapterCount, title, cover}]`
+/// （兼容命名空间与扁平布局；标题与封面取自下载目录里的作品元数据）。
 pub fn scan_local(dir: &str) -> String {
     native::files::scan_local(dir)
+}
+
+/// 一部已下载作品的元数据（标题、封面、各话标题）；没有这份元数据返回 `null`。
+pub fn read_comic_meta(dir: &str, source: &str, comic_id: &str) -> String {
+    native::files::read_comic_meta(dir, source, comic_id)
 }
 
 /// 删除某漫画的下载（整目录，含下载索引与全部章节）。目录本就不存在返回 `Ok(false)`。

@@ -32,16 +32,22 @@ vi.mock("../lib/storage/settings", () => ({
     getSettings: vi.fn().mockResolvedValue({ downloadDir: null }),
 }));
 
+vi.mock("../lib/storage/comics", () => ({
+    getKnownComic: vi.fn().mockResolvedValue(null),
+}));
+
 vi.mock("../lib/storage/sources", () => ({
     whenSourcesReady: vi.fn().mockResolvedValue(undefined),
     persistSourceCache: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { crawl, crawlCached } from "../api";
+import { getKnownComic } from "../lib/storage/comics";
 import { ToastProvider } from "../components/toast";
 
 const mockedCrawl = vi.mocked(crawl);
 const mockedCached = vi.mocked(crawlCached);
+const mockedKnown = vi.mocked(getKnownComic);
 
 const COMIC: Comic = {
     id: "webtoons-1",
@@ -85,6 +91,7 @@ function renderDetail() {
 beforeEach(() => {
     vi.clearAllMocks();
     mockedCached.mockResolvedValue(null);
+    mockedKnown.mockResolvedValue(null);
     mockedCrawl.mockResolvedValue({ comic: COMIC, chapters: [chapter(1)] });
 });
 
@@ -98,6 +105,16 @@ describe("Detail 详情页", () => {
         expect(await screen.findByText("测试作品")).toBeTruthy();
         expect(screen.getByText("第 1 话")).toBeTruthy();
         expect(screen.queryByText(/加载失败/)).toBeNull();
+    });
+
+    it("书架里记着这部作品时，抓取还没回来就先把作品信息渲染出来", async () => {
+        mockedKnown.mockResolvedValue({ ...COMIC, title: "书架里的标题" });
+        mockedCrawl.mockImplementation(() => new Promise(() => {}));
+        renderDetail();
+        expect(await screen.findByText("书架里的标题")).toBeTruthy();
+        // 章节还没取到：不能按「这部作品没有章节」渲染
+        expect(screen.queryByText("没有可看的章节")).toBeNull();
+        expect(screen.getAllByText("正在加载章节").length).toBeGreaterThan(0);
     });
 
     it("没有缓存且抓取失败：只显示错误横幅与重试", async () => {

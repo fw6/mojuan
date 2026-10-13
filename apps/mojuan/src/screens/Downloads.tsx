@@ -8,6 +8,7 @@ import {
     clearDownloads,
     DOWNLOADS_CHANGED_EVENT,
     getDownloads,
+    imgSrc,
     retryDownload,
     subscribeDownloads,
     unsubscribeDownloads,
@@ -24,6 +25,7 @@ import { EASE_OUT, SPRING_PANEL } from "../lib/ease";
 import { sourceTitle } from "../lib/sources";
 import { cn } from "../lib/utils";
 import {
+    Cover,
     EmptyState,
     Loading,
     PageHeader,
@@ -199,8 +201,20 @@ function ComicGroup({
                 aria-expanded={expanded}
                 className="w-full p-3.5 text-left transition-colors hover:bg-secondary/50"
             >
-                <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
+                <div className="flex items-center gap-3">
+                    <Cover
+                        src={
+                            group.cover
+                                ? imgSrc(group.cover, {
+                                      source: group.source,
+                                      comicId: group.comicId,
+                                  })
+                                : ""
+                        }
+                        alt={group.title}
+                        className="w-12 shrink-0"
+                    />
+                    <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-medium text-foreground">
                             {group.title}
                         </div>
@@ -225,6 +239,18 @@ function ComicGroup({
                                 </span>
                             )}
                         </div>
+
+                        <div className="mt-2.5 flex items-center gap-3">
+                            <ProgressBar
+                                pct={donePercent(group.done, total)}
+                                done={group.status === "done"}
+                            />
+                            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                                <AnimatedNumber value={group.done} startOnView={false} />
+                                {" / "}
+                                {total} 话
+                            </span>
+                        </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-2.5">
                         <AnimatedBadge
@@ -243,18 +269,6 @@ function ComicGroup({
                             <ChevronDown className="size-4" />
                         </motion.span>
                     </div>
-                </div>
-
-                <div className="mt-3 flex items-center gap-3">
-                    <ProgressBar
-                        pct={donePercent(group.done, total)}
-                        done={group.status === "done"}
-                    />
-                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                        <AnimatedNumber value={group.done} startOnView={false} />
-                        {" / "}
-                        {total} 话
-                    </span>
                 </div>
             </button>
 
@@ -288,7 +302,7 @@ function ComicGroup({
     );
 }
 
-/** 单话一行：页进度 + 状态 + 取消/重试。 */
+/** 单话一行：话名 + 页进度 + 状态 + 取消/重试。 */
 function ChapterRow({
     task,
     onCancel,
@@ -303,8 +317,8 @@ function ChapterRow({
     return (
         <div className="border-t border-border px-3.5 py-2.5 first:border-t-0">
             <div className="flex items-center justify-between gap-2.5">
-                <span className="text-xs font-medium tabular-nums text-foreground">
-                    第 {task.chapterIndex} 话
+                <span className="truncate text-xs font-medium text-foreground">
+                    {chapterLabel(task)}
                 </span>
                 <div className="flex items-center gap-1.5">
                     <AnimatedBadge
@@ -349,4 +363,9 @@ function ChapterRow({
             )}
         </div>
     );
+}
+
+/** 话名：源给的章节标题（如「第 12 话」）；没有标题时回落到话序号。 */
+function chapterLabel(task: DownloadTaskView): string {
+    return task.chapterTitle || `第 ${task.chapterIndex} 话`;
 }

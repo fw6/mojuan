@@ -69,13 +69,17 @@ pub fn get_downloads(runtime: tauri::State<'_, DownloadRuntime>) -> String {
 
 /// 入队一话下载（grilling #22）：去重 = 已在磁盘标 done 不入队；taskId 已在队列 → AlreadyQueued。
 /// 返回 JSON `{"result": "queued"|"alreadyDownloaded"|"alreadyQueued", "progress": {...}}`。
+/// 作品封面与话名一并入队：下载页的卡片与章节行据此显示，不必回源。
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn enqueue_download(
     runtime: tauri::State<'_, DownloadRuntime>,
     source: String,
     comic_id: String,
     comic_title: String,
+    comic_cover: String,
     chapter_index: i64,
+    chapter_title: String,
     dir: String,
     referer: String,
     urls: Vec<String>,
@@ -84,7 +88,9 @@ pub async fn enqueue_download(
         &source,
         &comic_id,
         &comic_title,
+        &comic_cover,
         chapter_index,
+        &chapter_title,
         &dir,
         &referer,
         urls,

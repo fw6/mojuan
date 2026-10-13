@@ -53,6 +53,8 @@ export function Cover({
     aspect?: string;
 }) {
     const [state, setState] = useState<"loading" | "loaded" | "error">("loading");
+    // 没有地址（旧下载、用户自己的文件夹）直接走占位：空 src 会被浏览器当成当前文档地址去取
+    const failed = state === "error" || src === "";
     return (
         <div
             className={cn(
@@ -61,10 +63,10 @@ export function Cover({
             )}
             style={{ aspectRatio: aspect }}
         >
-            {state === "loading" && (
+            {state === "loading" && !failed && (
                 <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-muted to-secondary" />
             )}
-            {state === "error" ? (
+            {failed ? (
                 <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-secondary to-card">
                     <span className="text-2xl font-semibold text-muted-foreground">
                         {alt.trim().charAt(0) || "C"}

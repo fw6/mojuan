@@ -12,6 +12,7 @@ import {
 } from "../api";
 import { useCrawl } from "../lib/hooks/use-crawl";
 import { filterExternalChapters } from "../lib/chapters";
+import { getKnownComic } from "../lib/storage/comics";
 import { isFavorite, toggleFavorite } from "../lib/storage/favorites";
 import { getProgress } from "../lib/storage/progress";
 import { getSettings } from "../lib/storage/settings";
@@ -44,6 +45,8 @@ export default function Detail() {
     const id = comicId ? decodeURIComponent(comicId) : "";
     const [favorite, setFavorite] = useState(false);
     const [resume, setResume] = useState<number | null>(null);
+    // 书架（收藏 / 历史）里记着的作品信息：首屏先用它渲染，抓取结果到了再覆盖
+    const [known, setKnown] = useState<Comic | null>(null);
     // 下载（多选）：磁盘上已有的章节 + 用户勾选 + 提交进度
     const [downloadDir, setDownloadDir] = useState<string | null>(null);
     const [onDisk, setOnDisk] = useState<Set<number>>(new Set());
@@ -60,27 +63,33 @@ export default function Detail() {
     );
 
     // 详情每次都拉网络（新鲜窗口为 0）：渲染源的章节中转链经 post_process 写入进程内
-    // 缓存（baozimh 的 images 依赖它），跳过抓取会让章节打不开。
+    // 缓存（baozimh 的 images 依赖它），跳过抓取会让章节打不开。抓取期间的作品信息
+    // 先用书架里记着的那份（`getKnownComic`）渲染，等抓取结果到了再覆盖。
     const detail = useCrawl<{ comic: Comic; chapters: Chapter[] }>(
         "detail",
         source ?? "",
         { comicId: id },
     );
-    const comic = detail.data?.comic ?? null;
+    const comic = detail.data?.comic ?? known;
     const chapters = filterExternalChapters(detail.data?.chapters ?? []);
+    /** 章节表是否已经取到（没取到时不能按「这部作品没有章节」渲染）。 */
+    const chaptersReady = detail.data !== null;
 
-    // 收藏 / 阅读进度 / 下载目录 / 磁盘上已有的章节：与抓取无关，各取一次
+    // 收藏 / 阅读进度 / 下载目录 / 磁盘上已有的章节 / 书架里记着的作品信息：
+    // 与抓取无关，各取一次
     useEffect(() => {
         let cancelled = false;
         void (async () => {
-            const [fav, prog, settings] = await Promise.all([
+            const [fav, prog, settings, saved] = await Promise.all([
                 isFavorite(source!, id),
                 getProgress(source!, id),
                 getSettings(),
+                getKnownComic(source!, id),
             ]);
             if (cancelled) return;
             setFavorite(fav);
             if (prog) setResume(prog.chapterIndex);
+            setKnown(saved);
             setDownloadDir(settings.downloadDir);
             setSelecting(false);
             setSelected(new Set());
@@ -137,6 +146,8 @@ export default function Detail() {
         }
         const indexes = [...selected].sort((a, b) => a - b);
         const referer = sourceReferer(source!);
+        // 话名随任务入队：下载页显示的是章节标题，不是源内部的话序号
+        const titleByIndex = new Map(chapters.map((ch) => [ch.index, ch.title]));
         setSubmitting({ done: 0, total: indexes.length });
         let queuedCount = 0;
         let skipped = 0;
@@ -156,7 +167,9 @@ export default function Detail() {
                     source: source!,
                     comicId: id,
                     comicTitle: comic.title,
+                    comicCover: comic.cover,
                     chapterIndex,
+                    chapterTitle: titleByIndex.get(chapterIndex) ?? "",
                     dir,
                     referer,
                     urls,
@@ -298,9 +311,11 @@ export default function Detail() {
                                 章节
                             </h2>
                             <p className="mt-1 text-xs text-muted-foreground">
-                                {chapters.length === 0
-                                    ? "只有站外章节，已隐藏"
-                                    : `共 ${chapters.length} 话`}
+                                {!chaptersReady
+                                    ? "正在加载章节"
+                                    : chapters.length === 0
+                                      ? "只有站外章节，已隐藏"
+                                      : `共 ${chapters.length} 话`}
                             </p>
                         </div>
                         {chapters.length > 0 && !selecting && (
@@ -315,7 +330,9 @@ export default function Detail() {
                         )}
                     </header>
 
-                    {chapters.length === 0 ? (
+                    {!chaptersReady ? (
+                        <Loading label="正在加载章节" />
+                    ) : chapters.length === 0 ? (
                         <EmptyState
                             icon={<BookOpen className="size-7" />}
                             text="没有可看的章节"

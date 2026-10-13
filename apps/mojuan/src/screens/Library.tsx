@@ -15,8 +15,11 @@ import {
 import {
     scanLocal,
     listDownloaded,
+    readComicMeta,
     deleteDownloaded,
+    imgSrc,
     type Comic,
+    type ComicMeta,
     type LocalComic,
     type DownloadedPage,
 } from "../api";
@@ -27,7 +30,15 @@ import { comicKey } from "../lib/storage/store";
 import { cn } from "../lib/utils";
 import { EASE_OUT, SPRING_PANEL } from "../lib/ease";
 import { sourceTitle } from "../lib/sources";
-import { ComicRow, Banner, EmptyState, Loading, PageHeader, Tag } from "../components/ui";
+import {
+    ComicRow,
+    Banner,
+    Cover,
+    EmptyState,
+    Loading,
+    PageHeader,
+    Tag,
+} from "../components/ui";
 import { useToast } from "../components/toast";
 import { Button } from "../components/beui/button";
 import { Tabs, TabsList, TabsTrigger } from "../components/beui/tabs";
@@ -359,6 +370,8 @@ function SwipeRow({ children }: { children: ReactNode }) {
  * 下载/本地漫画列表（wayfinder #19）：点漫画就地展开章节，点章节进本地阅读器。
  * 传了 `onDelete` 的行可以左滑露出删除（下载 tab；「本地文件」扫描的是用户自己挑的
  * 文件夹，不属于应用管理的数据，不提供删除）。
+ * 卡片显示的是下载时记进作品目录的标题与封面（`comic.json`）；用户自己挑的文件夹
+ * 没有这份元数据，回落到 comicId 与占位封面。
  */
 function DirList({
     dir,
@@ -374,6 +387,7 @@ function DirList({
     const [chapters, setChapters] = useState<
         Record<string, Record<string, DownloadedPage[]>>
     >({});
+    const [metas, setMetas] = useState<Record<string, ComicMeta | null>>({});
 
     async function toggle(key: string, item: LocalComic) {
         if (expanded === key) {
@@ -381,13 +395,17 @@ function DirList({
             return;
         }
         setExpanded(key);
-        if (!chapters[key]) {
-            try {
-                const listed = await listDownloaded(dir, item.source, item.comicId);
-                setChapters((c) => ({ ...c, [key]: listed }));
-            } catch (e) {
-                toast.show(`读取章节失败：${errorText(e)}`, "error");
-            }
+        if (chapters[key]) return;
+        try {
+            const [listed, meta] = await Promise.all([
+                listDownloaded(dir, item.source, item.comicId),
+                // 作品元数据缺失或读取失败只影响话名，章节表照常显示
+                readComicMeta(dir, item.source, item.comicId).catch(() => null),
+            ]);
+            setChapters((c) => ({ ...c, [key]: listed }));
+            setMetas((m) => ({ ...m, [key]: meta }));
+        } catch (e) {
+            toast.show(`读取章节失败：${errorText(e)}`, "error");
         }
     }
 
@@ -395,6 +413,7 @@ function DirList({
     function accordion(d: LocalComic) {
         const key = localKey(d);
         const chs = chapters[key];
+        const meta = metas[key];
         const isOpen = expanded === key;
         return (
             <div
@@ -408,11 +427,16 @@ function DirList({
                     type="button"
                     onClick={() => void toggle(key, d)}
                     aria-expanded={isOpen}
-                    className="flex w-full items-center justify-between gap-3 p-3.5 text-left transition-colors hover:bg-secondary/50"
+                    className="flex w-full items-center gap-3 p-3.5 text-left transition-colors hover:bg-secondary/50"
                 >
-                    <div className="min-w-0">
+                    <Cover
+                        src={d.cover ? imgSrc(d.cover, { source: d.source, comicId: d.comicId }) : ""}
+                        alt={d.title || d.comicId}
+                        className="w-12 shrink-0"
+                    />
+                    <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-medium text-foreground">
-                            {d.comicId}
+                            {d.title || d.comicId}
                         </div>
                         <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
                             <Tag>{sourceTitle(d.source)}</Tag>
@@ -422,7 +446,7 @@ function DirList({
                     <motion.span
                         animate={{ rotate: isOpen ? 180 : 0 }}
                         transition={{ duration: 0.2, ease: EASE_OUT }}
-                        className="text-muted-foreground"
+                        className="shrink-0 text-muted-foreground"
                     >
                         <ChevronDown className="size-4" />
                     </motion.span>
@@ -452,8 +476,10 @@ function DirList({
                                             to={`/local/${d.source}/${encodeURIComponent(d.comicId)}/${idx}`}
                                             className="flex items-center justify-between rounded-xl px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                                         >
-                                            <span>第 {idx} 话</span>
-                                            <span className="text-xs">
+                                            <span className="truncate">
+                                                {meta?.chapters[idx] ?? `第 ${idx} 话`}
+                                            </span>
+                                            <span className="shrink-0 text-xs">
                                                 {pages.length} 页
                                             </span>
                                         </Link>

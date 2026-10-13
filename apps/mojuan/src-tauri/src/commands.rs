@@ -141,6 +141,21 @@ pub async fn scan_local(dir: String) -> Result<String, String> {
         .map_err(|e| format!("扫描本地目录异常终止: {e}"))
 }
 
+/// 一部已下载作品的元数据（标题、封面、各话标题）：书架「下载」展开时取真实话名。
+/// 没有这份元数据（旧下载或用户自己的文件夹）返回 `null`。
+#[tauri::command]
+pub async fn read_comic_meta(
+    dir: String,
+    source: String,
+    comic_id: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        mojuan_core::read_comic_meta(&dir, &source, &comic_id)
+    })
+    .await
+    .map_err(|e| format!("读取作品信息异常终止: {e}"))
+}
+
 #[tauri::command]
 pub fn mojuan_version() -> String {
     mojuan_core::mojuan_version()

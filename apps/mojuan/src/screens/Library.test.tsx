@@ -11,6 +11,7 @@ import type { Comic, LocalComic } from "../api";
 vi.mock("../api", () => ({
     scanLocal: vi.fn(),
     listDownloaded: vi.fn(),
+    readComicMeta: vi.fn(),
     deleteDownloaded: vi.fn(),
     imgSrc: (url: string) => url,
 }));
@@ -37,13 +38,15 @@ vi.mock("../lib/sources", () => ({
     sourceTitle: (id: string) => id,
 }));
 
-import { scanLocal, deleteDownloaded } from "../api";
+import { scanLocal, deleteDownloaded, listDownloaded, readComicMeta } from "../api";
 import { getFavorites, removeFavorite } from "../lib/storage/favorites";
 import { getHistory, removeHistory } from "../lib/storage/history";
 import { getSettings } from "../lib/storage/settings";
 
 const mockedScan = vi.mocked(scanLocal);
 const mockedDeleteDownloaded = vi.mocked(deleteDownloaded);
+const mockedListDownloaded = vi.mocked(listDownloaded);
+const mockedReadComicMeta = vi.mocked(readComicMeta);
 const mockedFavorites = vi.mocked(getFavorites);
 const mockedRemoveFavorite = vi.mocked(removeFavorite);
 const mockedHistory = vi.mocked(getHistory);
@@ -85,6 +88,8 @@ beforeEach(() => {
     vi.clearAllMocks();
     mockedFavorites.mockResolvedValue([]);
     mockedScan.mockResolvedValue([]);
+    mockedListDownloaded.mockResolvedValue({});
+    mockedReadComicMeta.mockResolvedValue(null);
     mockedSettings.mockResolvedValue({
         downloadDir: null,
         darkMode: false,
@@ -141,8 +146,14 @@ describe("书架页的删除", () => {
 
     it("下载列表删除走磁盘目录，并带上当前下载位置", async () => {
         const items: LocalComic[] = [
-            { source: "webtoons", comicId: "c1", chapterCount: 2 },
-            { source: "webtoons", comicId: "c2", chapterCount: 1 },
+            {
+                source: "webtoons",
+                comicId: "c1",
+                chapterCount: 2,
+                title: "作品甲",
+                cover: "https://x/a.jpg",
+            },
+            { source: "webtoons", comicId: "c2", chapterCount: 1, title: "", cover: "" },
         ];
         mockedSettings.mockResolvedValue({
             downloadDir: "/mock/downloads",
@@ -157,13 +168,54 @@ describe("书架页的删除", () => {
         await waitFor(() => expect(screen.getByText("作品 a")).toBeTruthy());
 
         fireEvent.click(screen.getByRole("tab", { name: /下载/ }));
-        await waitFor(() => expect(screen.getByText("c1")).toBeTruthy());
+        // 卡片显示下载时记下的作品标题；没有元数据的旧下载回落到 comicId
+        await waitFor(() => expect(screen.getByText("作品甲")).toBeTruthy());
+        expect(screen.getByText("c2")).toBeTruthy();
 
         fireEvent.click(screen.getAllByRole("button", { name: "删除", hidden: true })[0]);
 
-        await waitFor(() => expect(screen.queryByText("c1")).toBeNull());
+        await waitFor(() => expect(screen.queryByText("作品甲")).toBeNull());
         expect(mockedDeleteDownloaded).toHaveBeenCalledWith("/mock/downloads", "webtoons", "c1");
         expect(screen.getByText("c2")).toBeTruthy();
+    });
+
+    it("下载列表展开后显示作品元数据里的话名，没有元数据时回落到话序号", async () => {
+        mockedSettings.mockResolvedValue({
+            downloadDir: "/mock/downloads",
+            darkMode: false,
+            autoTrim: false,
+            lastSource: null,
+            lastCategory: {},
+        });
+        mockedScan.mockResolvedValue([
+            {
+                source: "webtoons",
+                comicId: "c1",
+                chapterCount: 2,
+                title: "作品甲",
+                cover: "",
+            },
+        ]);
+        mockedListDownloaded.mockResolvedValue({
+            "900001": [{ url: "https://x/0.jpg", path: "chapter_900001/0.jpg" }],
+            "900002": [{ url: "https://x/1.jpg", path: "chapter_900002/0.jpg" }],
+        });
+        mockedReadComicMeta.mockResolvedValue({
+            source: "webtoons",
+            comicId: "c1",
+            title: "作品甲",
+            cover: "",
+            chapters: { "900001": "第 1 话" },
+        });
+        renderLibrary();
+        await waitFor(() => expect(screen.getByText("作品 a")).toBeTruthy());
+
+        fireEvent.click(screen.getByRole("tab", { name: /下载/ }));
+        await waitFor(() => expect(screen.getByText("作品甲")).toBeTruthy());
+        fireEvent.click(screen.getByRole("button", { name: /作品甲/ }));
+
+        await waitFor(() => expect(screen.getByText("第 1 话")).toBeTruthy());
+        expect(screen.getByText("第 900002 话")).toBeTruthy();
     });
 
     it("本地文件 tab 不提供删除（扫的是用户自己挑的文件夹）", async () => {

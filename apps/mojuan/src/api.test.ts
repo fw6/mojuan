@@ -16,6 +16,7 @@ import {
     mojuanVersion,
     scanLocal,
     listDownloaded,
+    readComicMeta,
     enqueueDownload,
     getDownloads,
     cancelDownload,
@@ -164,13 +165,27 @@ describe("mojuanVersion", () => {
     });
 });
 
-describe("scanLocal / listDownloaded / downloadImage（本地下载命令包装）", () => {
-    it("scanLocal 解析返回的 JSON 数组（含 source）", async () => {
+describe("scanLocal / listDownloaded / readComicMeta（本地下载命令包装）", () => {
+    it("scanLocal 解析返回的 JSON 数组（含 source 与作品标题封面）", async () => {
         mockedInvoke.mockResolvedValue(
-            JSON.stringify([{ source: "webtoons", comicId: "a", chapterCount: 3 }]),
+            JSON.stringify([
+                {
+                    source: "webtoons",
+                    comicId: "a",
+                    chapterCount: 3,
+                    title: "作品甲",
+                    cover: "https://x/a.jpg",
+                },
+            ]),
         );
         await expect(scanLocal("/tmp/dl")).resolves.toEqual([
-            { source: "webtoons", comicId: "a", chapterCount: 3 },
+            {
+                source: "webtoons",
+                comicId: "a",
+                chapterCount: 3,
+                title: "作品甲",
+                cover: "https://x/a.jpg",
+            },
         ]);
         expect(mockedInvoke).toHaveBeenCalledWith("scan_local", { dir: "/tmp/dl" });
     });
@@ -188,6 +203,33 @@ describe("scanLocal / listDownloaded / downloadImage（本地下载命令包装�
             comicId: "a",
         });
     });
+
+    it("readComicMeta 解析作品元数据，没有这份元数据返回 null", async () => {
+        mockedInvoke.mockResolvedValue(
+            JSON.stringify({
+                source: "webtoons",
+                comicId: "a",
+                title: "作品甲",
+                cover: "https://x/a.jpg",
+                chapters: { "7": "第 7 话" },
+            }),
+        );
+        await expect(readComicMeta("/tmp/dl", "webtoons", "a")).resolves.toEqual({
+            source: "webtoons",
+            comicId: "a",
+            title: "作品甲",
+            cover: "https://x/a.jpg",
+            chapters: { "7": "第 7 话" },
+        });
+        expect(mockedInvoke).toHaveBeenCalledWith("read_comic_meta", {
+            dir: "/tmp/dl",
+            source: "webtoons",
+            comicId: "a",
+        });
+
+        mockedInvoke.mockResolvedValue("null");
+        await expect(readComicMeta("/tmp/dl", "webtoons", "b")).resolves.toBeNull();
+    });
 });
 
 describe("下载任务队列 API（wayfinder #20/#22/#23）", () => {
@@ -202,7 +244,9 @@ describe("下载任务队列 API（wayfinder #20/#22/#23）", () => {
             source: "webtoons",
             comicId: "a",
             comicTitle: "标题",
+            comicCover: "https://x/cover.jpg",
             chapterIndex: 1,
+            chapterTitle: "第 1 话",
             dir: "/tmp/dl",
             referer: "https://www.webtoons.com/",
             urls: ["https://x/0.jpg", "https://x/1.jpg", "https://x/2.jpg"],
@@ -213,7 +257,9 @@ describe("下载任务队列 API（wayfinder #20/#22/#23）", () => {
             source: "webtoons",
             comicId: "a",
             comicTitle: "标题",
+            comicCover: "https://x/cover.jpg",
             chapterIndex: 1,
+            chapterTitle: "第 1 话",
             dir: "/tmp/dl",
             referer: "https://www.webtoons.com/",
             urls: ["https://x/0.jpg", "https://x/1.jpg", "https://x/2.jpg"],
@@ -228,7 +274,9 @@ describe("下载任务队列 API（wayfinder #20/#22/#23）", () => {
                     source: "webtoons",
                     comicId: "a",
                     comicTitle: "标题",
+                    comicCover: "https://x/cover.jpg",
                     chapterIndex: 1,
+                    chapterTitle: "第 1 话",
                     status: "downloading",
                     done: 2,
                     total: 3,
@@ -238,6 +286,7 @@ describe("下载任务队列 API（wayfinder #20/#22/#23）", () => {
         const list = await getDownloads();
         expect(list).toHaveLength(1);
         expect(list[0].comicTitle).toBe("标题");
+        expect(list[0].chapterTitle).toBe("第 1 话");
         expect(mockedInvoke).toHaveBeenCalledWith("get_downloads");
     });
 

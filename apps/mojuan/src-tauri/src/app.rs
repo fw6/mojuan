@@ -54,6 +54,7 @@ pub fn run() {
             commands::webdav_get,
             commands::list_downloaded,
             commands::scan_local,
+            commands::read_comic_meta,
             commands::mojuan_version,
             commands::img_proxy_port,
             commands::img_proxy_set_download_dir,

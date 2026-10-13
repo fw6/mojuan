@@ -5,6 +5,7 @@
 //! 传入的闭包，所以运行时不认识 Tauri，也不需要 AppHandle：`cargo test` 里换一个假
 //! downloader 就能跑同一份策略代码。
 
+use crate::native::comic_meta;
 use crate::native::files;
 use crate::native::queue::{
     DownloadProgress, DownloadQueue, DownloadTask, DownloadTaskView, EnqueueResult,
@@ -76,7 +77,17 @@ impl DownloadRuntime {
 
     /// 入队一话：已在磁盘 → 标 done 不入队；taskId 已在队列 → 不重复入队。
     /// 返回入队结果与该任务此刻的进度。
+    /// 顺带把作品标题、封面与这一话的话名记进下载目录的作品元数据（书架列表据此显示）。
     pub fn enqueue(&self, task: DownloadTask) -> (EnqueueResult, DownloadProgress) {
+        comic_meta::record_chapter(
+            &task.dir,
+            &task.source,
+            &task.comic_id,
+            &task.comic_title,
+            &task.comic_cover,
+            task.chapter_index,
+            &task.chapter_title,
+        );
         let already =
             files::chapter_downloaded(&task.dir, &task.source, &task.comic_id, task.chapter_index);
         let (result, progress) = self.inner.queue.lock().unwrap().enqueue(task, already);
@@ -221,7 +232,9 @@ mod tests {
             "webtoons",
             "c1",
             "标题",
+            "https://x/cover.jpg",
             1,
+            "第 1 话",
             dir,
             "",
             (0..pages).map(|i| format!("https://x/{i}.jpg")).collect(),
@@ -389,6 +402,26 @@ mod tests {
         let view = &runtime.snapshot()[0];
         assert_eq!(view.status, TaskStatus::Done);
         assert_eq!(view.done, 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn enqueue_records_the_comic_metadata_on_disk() {
+        let (_seen, sink) = collector();
+        let dir = std::env::temp_dir().join(format!("mojuan-dl-meta-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let runtime = DownloadRuntime::with_downloader(
+            Box::new(|_task: &DownloadTask, _page: usize| Ok(())),
+            sink,
+        );
+
+        runtime.enqueue(task(1, dir.to_str().unwrap()));
+
+        let meta = crate::native::comic_meta::read(dir.to_str().unwrap(), "webtoons", "c1").unwrap();
+        assert_eq!(meta.title, "标题");
+        assert_eq!(meta.cover, "https://x/cover.jpg");
+        assert_eq!(meta.chapters.get("1").map(String::as_str), Some("第 1 话"));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

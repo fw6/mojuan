@@ -27,11 +27,25 @@ export interface Chapter {
     read: boolean;
 }
 
-/** 本地扫描/下载目录里的漫画条目（wayfinder #19：带 source，扁平导入为 "local"）。 */
+/** 本地扫描/下载目录里的漫画条目（wayfinder #19：带 source，扁平导入为 "local"）。
+ * 标题与封面来自下载目录里的作品元数据（`comic.json`）；旧下载与用户自己的文件夹
+ * 没有这份元数据，两个字段是空串，展示时回落到 comicId。 */
 export interface LocalComic {
     source: string;
     comicId: string;
     chapterCount: number;
+    title: string;
+    cover: string;
+}
+
+/** 一部已下载作品的元数据（`read_comic_meta`）；没有这份元数据返回 null。 */
+export interface ComicMeta {
+    source: string;
+    comicId: string;
+    title: string;
+    cover: string;
+    /** 话序号（字符串形式，与 `chapter_<n>` 目录名一致）→ 章节标题 */
+    chapters: Record<string, string>;
 }
 
 /** 调 Rust crawl 命令：payload 编码为 JSON 字符串，返回解析后的 JSON。
@@ -63,10 +77,16 @@ export function crawlCached<T>(
 
 export const mojuanVersion = () => invoke<string>("mojuan_version");
 
-/** 扫描下载目录/本地文件夹：`[{source, comicId, chapterCount}]`。 */
+/** 扫描下载目录/本地文件夹：`[{source, comicId, chapterCount, title, cover}]`。 */
 export const scanLocal = (dir: string) =>
     invoke<string>("scan_local", { dir }).then(
         (json) => JSON.parse(json) as LocalComic[],
+    );
+
+/** 一部已下载作品的元数据（标题、封面、各话标题）；没有这份元数据返回 null。 */
+export const readComicMeta = (dir: string, source: string, comicId: string) =>
+    invoke<string>("read_comic_meta", { dir, source, comicId }).then(
+        (json) => (JSON.parse(json) as ComicMeta | null) ?? null,
     );
 
 /** 已下载章节条目：`{url: string, path: string}`（path 为相对路径 chapter_<n>/<file>）。 */
@@ -101,7 +121,10 @@ export interface DownloadTaskView extends DownloadProgress {
     source: string;
     comicId: string;
     comicTitle: string;
+    comicCover: string;
     chapterIndex: number;
+    /** 章节标题（源给的，如「第 12 话」）；话序号只是源内部的 id，不能当名字显示。 */
+    chapterTitle: string;
 }
 
 /** 入队结果（grilling #22 #4/#5 去重语义）。 */
@@ -123,12 +146,15 @@ export const unsubscribeDownloads = () => invoke("unsubscribe_downloads");
 export const getDownloads = () =>
     invoke<string>("get_downloads").then((json) => JSON.parse(json) as DownloadTaskView[]);
 
-/** 入队一话下载（已在磁盘 → alreadyDownloaded 不入队；重复入队 → alreadyQueued）。 */
+/** 入队一话下载（已在磁盘 → alreadyDownloaded 不入队；重复入队 → alreadyQueued）。
+ * 封面与话名一并入队：下载页的卡片与章节行据此显示，不必回源抓取。 */
 export const enqueueDownload = (params: {
     source: string;
     comicId: string;
     comicTitle: string;
+    comicCover: string;
     chapterIndex: number;
+    chapterTitle: string;
     dir: string;
     referer: string;
     urls: string[];

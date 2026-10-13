@@ -7,6 +7,8 @@ export interface DownloadGroup {
     source: string;
     comicId: string;
     title: string;
+    /** 作品封面（入队时记下的地址）；没有时为空串，卡片回落到无图形态 */
+    cover: string;
     /** 组内任务，按话数升序 */
     chapters: DownloadTaskView[];
     done: number;
@@ -44,6 +46,7 @@ export function groupDownloads(tasks: DownloadTaskView[]): DownloadGroup[] {
                 source: task.source,
                 comicId: task.comicId,
                 title: task.comicTitle,
+                cover: task.comicCover,
                 chapters: [],
                 done: 0,
                 queued: 0,

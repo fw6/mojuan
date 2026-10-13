@@ -101,6 +101,12 @@
   worker 仍要凭它在下一页边界停下（`retry` 与重新入队同一话时清掉）。
 - `files::delete_downloaded` 删的是 `<dir>/<source>/<comicId>` 整目录（含 `download_index.json`），
   路径由 `comic_dir` 唯一决定，并校验目标严格落在下载目录之内；目录本就不存在返回 `Ok(false)`。
+- 作品元数据（`native/comic_meta.rs` → `<dir>/<source>/<comicId>/comic.json`）：作品标题、封面与
+  各话标题。`DownloadRuntime::enqueue` 每入队一话就并入一条（标题与封面取最新值），下载目录
+  因此本身就是书架「下载」列表的数据源——`scan_local` 顺手带上 `title`/`cover`，展开时用
+  `read_comic_meta` 取各话的真实标题。旧下载与用户自己挑的文件夹没有这份文件，两个命令都按
+  无元数据降级（空串 / `null`），消费方回落到 comicId 与话序号。下载队列的任务视图同时带上
+  `comicCover` 与 `chapterTitle`，下载页的卡片与章节行不必回源也不必读盘。
 
 ## 命令 API 约定
 

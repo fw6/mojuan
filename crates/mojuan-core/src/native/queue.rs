@@ -31,7 +31,7 @@ pub struct DownloadProgress {
     pub error: Option<String>,
 }
 
-/// 任务快照（get_downloads）：进度 + 展示字段（下载页任务行需要标题/话数）。
+/// 任务快照（get_downloads）：进度 + 展示字段（下载页任务行需要标题/封面/话名）。
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadTaskView {
@@ -39,7 +39,10 @@ pub struct DownloadTaskView {
     pub source: String,
     pub comic_id: String,
     pub comic_title: String,
+    pub comic_cover: String,
     pub chapter_index: i64,
+    /// 章节标题（源给的，如「第 12 话」）；话序号只是源内部的 id，不能当名字显示。
+    pub chapter_title: String,
     pub status: TaskStatus,
     pub done: usize,
     pub total: usize,
@@ -54,7 +57,9 @@ pub struct DownloadTask {
     pub source: String,
     pub comic_id: String,
     pub comic_title: String,
+    pub comic_cover: String,
     pub chapter_index: i64,
+    pub chapter_title: String,
     pub dir: String,
     pub referer: String,
     pub urls: Vec<String>,
@@ -65,11 +70,14 @@ pub struct DownloadTask {
 
 impl DownloadTask {
     /// 一话的下载任务：taskId 由 `source/comicId/chapterIndex` 派生，状态从 queued 起。
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         source: &str,
         comic_id: &str,
         comic_title: &str,
+        comic_cover: &str,
         chapter_index: i64,
+        chapter_title: &str,
         dir: &str,
         referer: &str,
         urls: Vec<String>,
@@ -79,7 +87,9 @@ impl DownloadTask {
             source: source.to_string(),
             comic_id: comic_id.to_string(),
             comic_title: comic_title.to_string(),
+            comic_cover: comic_cover.to_string(),
             chapter_index,
+            chapter_title: chapter_title.to_string(),
             dir: dir.to_string(),
             referer: referer.to_string(),
             urls,
@@ -109,7 +119,9 @@ impl DownloadTask {
             source: self.source.clone(),
             comic_id: self.comic_id.clone(),
             comic_title: self.comic_title.clone(),
+            comic_cover: self.comic_cover.clone(),
             chapter_index: self.chapter_index,
+            chapter_title: self.chapter_title.clone(),
             status: self.status,
             done: self.done,
             total: self.total(),
@@ -285,7 +297,9 @@ mod tests {
             source: "webtoons".to_string(),
             comic_id: "c1".to_string(),
             comic_title: "标题".to_string(),
+            comic_cover: "https://x/cover.jpg".to_string(),
             chapter_index: 1,
+            chapter_title: "第 1 话".to_string(),
             dir: "/tmp/dl".to_string(),
             referer: String::new(),
             urls: (0..pages).map(|i| format!("https://x/{i}.jpg")).collect(),
@@ -468,7 +482,9 @@ mod tests {
         assert_eq!(views.len(), 2);
         assert_eq!(views[0].task_id, "a");
         assert_eq!(views[0].comic_title, "标题");
+        assert_eq!(views[0].comic_cover, "https://x/cover.jpg");
         assert_eq!(views[0].chapter_index, 1);
+        assert_eq!(views[0].chapter_title, "第 1 话");
         assert_eq!(views[1].status, TaskStatus::Done);
         assert_eq!(views[1].done, 2);
     }

@@ -15,7 +15,9 @@ const task = (
     source,
     comicId,
     comicTitle,
+    comicCover: "https://x/cover.jpg",
     chapterIndex,
+    chapterTitle: `第 ${chapterIndex} 话`,
     status,
     done,
     total,
@@ -30,6 +32,12 @@ describe("groupDownloads（下载任务按漫画分组）", () => {
         ]);
         expect(groups).toHaveLength(1);
         expect(groups[0].chapters.map((c) => c.chapterIndex)).toEqual([1, 2, 3]);
+    });
+
+    it("组带上作品标题与封面（下载页卡片显示用）", () => {
+        const groups = groupDownloads([task("mangadex", "c1", 1, "queued", 0, 10, "作品甲")]);
+        expect(groups[0].title).toBe("作品甲");
+        expect(groups[0].cover).toBe("https://x/cover.jpg");
     });
 
     it("同名作品来自不同源时各自成组，组序沿用队列顺序", () => {

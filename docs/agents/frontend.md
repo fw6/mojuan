@@ -103,6 +103,13 @@ beui registry 里没有可用于远程搜索的现成组件：`morphing-search` 
 表达不了「这部作品整个没了」，所以 Rust 侧在有任务被移除时广播 `download://changed`，页面 `listen` 它并刷新
 （页面是保留的，切页不重挂载，只靠初始快照会一直显示已经删掉的记录）。
 
+下载页的卡片与「下载」tab 的卡片都带封面、显示作品标题与真实话名：话名不是话序号（源内部
+id，manhuagui 这类源是七八位数字）。下载页的数据来自入队时记进任务的 `comicCover` /
+`chapterTitle`；「下载」tab 的数据来自下载目录里的作品元数据（`comic.json`，见
+`docs/agents/mojuan-core.md`），卡片标题与封面取 `scan_local` 的结果，展开时 `readComicMeta`
+取该作品各话的标题。旧下载与用户自己挑的文件夹没有这份元数据，`DirList` 回落到 comicId 与
+无图占位（`Cover` 收到空地址时直接显示首字占位，不去请求空路径）。
+
 ## 数据加载与结果缓存（stale-while-revalidate）
 
 列表与详情的抓取结果由 Rust 侧缓存（`crawler/result_cache.rs`，见 `docs/agents/mojuan-core.md`），
@@ -124,6 +131,12 @@ beui registry 里没有可用于远程搜索的现成组件：`morphing-search` 
 错误呈现也在这里：抛出的错误优先，没有抛出但结果为空时取源错误登记表（`sourceErrors()`）里该源的
 最近一条首行，结果非空时不挂旧错误。`loading` 覆盖整次抓取，`stale` 表示「数据来自缓存、后台正在
 拉最新」，页面用 `loading && !stale` 决定压暗与禁用，后台刷新不挡操作。
+
+详情页在结果缓存之外还接一层书架快照：`getKnownComic(source, comicId)`（`lib/storage/comics.ts`，
+跨域读收藏与历史，自己不持有存储）拿到的 `Comic` 先渲染作品信息，抓取结果到了再覆盖。结果缓存
+的键含源文档与运行时版本标识，源更新或缓存被清理之后详情就没有可显示的缓存，而收藏与历史里那份
+快照不受影响。章节表没取到时不能按「这部作品没有章节」渲染，`Detail` 用 `detail.data !== null`
+区分「还没取到」与「确实没有」。
 
 ## 阅读器的分页策略
 

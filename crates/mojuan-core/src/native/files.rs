@@ -4,6 +4,7 @@
 //! 「本地」tab 扫描兼容旧扁平布局（顶层目录直接含 chapter_* → source 记 "local"）。
 
 use crate::crawler::http;
+use crate::native::comic_meta;
 use crate::native::download_index;
 use crate::native::paths::{comic_dir, FLAT_SOURCE};
 use serde_json::{json, Value};
@@ -78,6 +79,14 @@ pub fn list_downloaded(dir: &str, source: &str, comic_id: &str) -> String {
     download_index::list_downloaded_with_urls(dir, source, comic_id)
 }
 
+/// 一部作品的元数据 JSON（书架「下载」展开时取各话的真实标题）。没有这份元数据返回 `null`。
+pub fn read_comic_meta(dir: &str, source: &str, comic_id: &str) -> String {
+    match comic_meta::read(dir, source, comic_id) {
+        Some(meta) => serde_json::to_string(&meta).unwrap_or_else(|_| "null".to_string()),
+        None => "null".to_string(),
+    }
+}
+
 /// 删除某漫画的下载：整目录（含下载索引与全部章节）。
 /// 目标由 `comic_dir` 唯一决定，必须严格落在下载目录之内，否则拒绝；
 /// 目录本就不存在返回 `Ok(false)`。
@@ -111,12 +120,24 @@ fn chapter_count(comic_path: &Path) -> i64 {
         .unwrap_or(0)
 }
 
-/// 扫描本地已下载漫画：`[{source, comicId, chapterCount}]`。
+/// 扫描本地已下载漫画：`[{source, comicId, chapterCount, title, cover}]`。
 /// 兼容两种布局：命名空间 `<dir>/<source>/<comicId>/…` 与旧扁平 `<dir>/<comicId>/…`
 /// （扁平条目 source = "local"，wayfinder #19）。
+/// 标题与封面来自该作品目录下的 `comic.json`（下载入队时写入）；旧下载与用户自己的
+/// 文件夹没有这份元数据，两个字段为空串，消费方回落到 comicId。
 pub fn scan_local(dir: &str) -> String {
     let base = Path::new(dir);
     let mut arr = Vec::new();
+    let mut push = |source: &str, comic_id: &str, path: &Path| {
+        let meta = comic_meta::read(dir, source, comic_id);
+        arr.push(json!({
+            "source": source,
+            "comicId": comic_id,
+            "chapterCount": chapter_count(path),
+            "title": meta.as_ref().map(|m| m.title.clone()).unwrap_or_default(),
+            "cover": meta.as_ref().map(|m| m.cover.clone()).unwrap_or_default(),
+        }));
+    };
     if let Ok(entries) = fs::read_dir(base) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -126,7 +147,7 @@ pub fn scan_local(dir: &str) -> String {
             let name = entry.file_name().to_string_lossy().to_string();
             // 顶层目录直接含 chapter_* → 扁平漫画
             if chapter_count(&path) > 0 {
-                arr.push(json!({ "source": FLAT_SOURCE, "comicId": name, "chapterCount": chapter_count(&path) }));
+                push(FLAT_SOURCE, &name, &path);
                 continue;
             }
             // 否则按 source 层递归一层：子目录含 chapter_* → 命名空间漫画
@@ -136,13 +157,8 @@ pub fn scan_local(dir: &str) -> String {
                     if !child_path.is_dir() {
                         continue;
                     }
-                    let count = chapter_count(&child_path);
-                    if count > 0 {
-                        arr.push(json!({
-                            "source": name,
-                            "comicId": child.file_name().to_string_lossy().to_string(),
-                            "chapterCount": count,
-                        }));
+                    if chapter_count(&child_path) > 0 {
+                        push(&name, &child.file_name().to_string_lossy(), &child_path);
                     }
                 }
             }
@@ -183,6 +199,16 @@ mod tests {
         // 扁平：comic-c 直接含 chapter_4
         fs::create_dir_all(dir.join("comic-c").join("chapter_4")).unwrap();
         fs::write(dir.join("comic-c").join("chapter_4").join("0.webp"), b"y").unwrap();
+        // comic-a 有作品元数据，comic-b 没有（旧下载）
+        comic_meta::record_chapter(
+            dir.to_str().unwrap(),
+            "webtoons",
+            "comic-a",
+            "作品甲",
+            "https://x/a.jpg",
+            1,
+            "第 1 话",
+        );
 
         let scanned: Vec<Value> = serde_json::from_str(&scan_local(dir.to_str().unwrap())).unwrap();
         let norm = |v: &Value| {
@@ -200,9 +226,37 @@ mod tests {
         );
         let a = scanned.iter().find(|v| v["comicId"] == "comic-a").unwrap();
         assert_eq!(a["chapterCount"], 2); // misc 不计
+        assert_eq!(a["title"], "作品甲");
+        assert_eq!(a["cover"], "https://x/a.jpg");
+        let b = scanned.iter().find(|v| v["comicId"] == "comic-b").unwrap();
+        assert_eq!(b["title"], ""); // 没有元数据：空串，消费方回落到 comicId
+        assert_eq!(b["cover"], "");
         let c = scanned.iter().find(|v| v["comicId"] == "comic-c").unwrap();
         assert_eq!(c["source"], "local");
         assert_eq!(c["chapterCount"], 1);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_comic_meta_returns_null_without_metadata() {
+        let dir = temp_dir("meta-json");
+        fs::create_dir_all(dir.join("webtoons").join("comic-a").join("chapter_1")).unwrap();
+        assert_eq!(read_comic_meta(dir.to_str().unwrap(), "webtoons", "comic-a"), "null");
+
+        comic_meta::record_chapter(
+            dir.to_str().unwrap(),
+            "webtoons",
+            "comic-a",
+            "作品甲",
+            "",
+            7,
+            "第 7 话",
+        );
+        let meta: Value =
+            serde_json::from_str(&read_comic_meta(dir.to_str().unwrap(), "webtoons", "comic-a")).unwrap();
+        assert_eq!(meta["title"], "作品甲");
+        assert_eq!(meta["chapters"]["7"], "第 7 话");
 
         let _ = fs::remove_dir_all(&dir);
     }
