@@ -16,3 +16,12 @@ resolver = "2"
 # 断言守着两者一致；发布流程用 scripts/app-version.mjs 取。
 [workspace.package]
 version = "1.6.6"
+
+# 打包体积（Tauri 官方推荐的 release 配置）：strip 去掉符号表，panic=abort 去掉
+# unwind 表，lto + codegen-units=1 让跨 crate 内联并消掉无法到达的代码。
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
