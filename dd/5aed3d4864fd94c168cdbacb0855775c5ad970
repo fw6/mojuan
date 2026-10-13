@@ -1,0 +1,21 @@
+docs/adr/0005-follow-baseline-is-progress.md
+  s_fd9761ff2f06b8::t_06fd43b52a35e7 36
+  s_fd9761ff2f06b8::t_8a0673f05d2ca1 40
+  s_fd9761ff2f06b8::t_4d152b6f0a3246 31-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.49-trip",
+  "base_commit_sha": "dd5aed3d4864fd94c168cdbacb0855775c5ad970",
+  "prompts": {},
+  "sessions": {
+    "s_fd9761ff2f06b8": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_aeef6ff8-ab25-40c0-a636-0c82b28c7fdd",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": null
+    }
+  }
+}
