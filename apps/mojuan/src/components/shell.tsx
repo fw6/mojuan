@@ -77,11 +77,13 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </AnimatedSidebar>
             )}
 
-            {/* 状态栏高度：主导航页面不再有顶部栏，内容仍要给系统状态栏让位 */}
+            {/* 状态栏高度：主导航页面不再有顶部栏，内容仍要给系统状态栏让位。
+                阅读器例外——它要整屏铺到状态栏下面（画布是暗的，状态栏半透明地浮在
+                漫画上），让位由它自己的浮层顶栏做，见 Reader 的顶栏。 */}
             <AnimatedSidebarInset
                 className="h-full min-h-0"
                 style={{
-                    paddingTop: "env(safe-area-inset-top)",
+                    paddingTop: immersive ? undefined : "env(safe-area-inset-top)",
                     // 底部安全区：有导航栏时栏自己让，二级页面没有栏，由外壳让出
                     ...(subpage
                         ? { paddingBottom: "env(safe-area-inset-bottom)" }

@@ -31,7 +31,7 @@ Tauri v2 + React 19 + Vite 的前端。UI 由 Tailwind CSS v4 与 beui 组件构
 
 - 窄屏只在主导航页面上有一条导航：`src/components/shell.tsx` 的 `NavRail`（beui `overflow-actions` 药丸栏），二级页面（作品详情）不渲染它——退出靠顶部栏的返回。发现、书架常驻在栏里，下载、设置收进「…」，当前页落在溢出组时自动展开一次。桌面侧边栏与它共用 `src/lib/nav.ts` 的 `NAV`；改导航结构要同时看这两处与 `RAIL_PRIMARY` / `RAIL_OVERFLOW`。
 - 主导航页面（发现 / 书架 / 下载 / 设置）不渲染顶部栏，页头（`ui.tsx` 的 `PageHeader`）也不再写页面名——导航已经标出当前页，视觉上只留一行副标题与右侧动作，页面名以 `sr-only` 留给读屏；子页面（作品详情）才有「返回 + 标题 + 搜索」，由 `TopBar` 渲染。阅读器是沉浸模式，整条导航壳都不渲染。
-- 状态栏高度统一由 `AnimatedSidebarInset` 的 `padding-top: env(safe-area-inset-top)` 让出，页面自己不要再加；底部安全区有导航栏时栏自己让（`max(…, env(safe-area-inset-bottom))`），二级页面没有栏，由外壳按同一变量补 `padding-bottom`。
+- 状态栏高度统一由 `AnimatedSidebarInset` 的 `padding-top: env(safe-area-inset-top)` 让出，页面自己不要再加；底部安全区有导航栏时栏自己让（`max(…, env(safe-area-inset-bottom))`），二级页面没有栏，由外壳按同一变量补 `padding-bottom`。阅读器是例外：它的画布要铺到状态栏下面（见「阅读器的沉浸层」），外壳不为它让位，让位由它自己的浮层顶栏做。
 - 主题切换入口只有设置页（`src/lib/theme.tsx` 的 `useTheme` + `Switch`）；命令面板与外壳里都没有主题按钮，加回会在设计上出现第二个入口。
 
 ## 页面保留（切页不丢状态）
@@ -171,6 +171,19 @@ id，manhuagui 这类源是七八位数字）。下载页的数据来自入队�
 
 顶栏位移用的是 Tailwind v4 的 `translate` 工具类，它写的是 CSS `translate` 属性而不是 `transform`——过渡属性要写 `transition-[opacity,translate]`，写成 `transform` 的话位移会瞬间跳变。
 
+### 移动端的全屏阅读
+
+窄屏（`useIsMobile`）下阅读区横向三分，由 `src/lib/tap-zones.ts` 的 `tapZone(x, width)` 判定（纯函数，jsdom 测不了布局所以抽出来测）：
+
+- **左带**翻上一页、**右带**翻下一页——阅读形态是连续滚动，所以「一页」就是一屏（`clientHeight`），长条漫一页好几屏，按图片翻会跳过一大段。
+- **中带**切换沉浸式阅读：顶栏与系统栏（状态栏 + 导航栏）一起收走，整屏让给漫画。顶栏右上角那颗按钮在移动端也是同一个开关（桌面端才是窗口全屏）。
+- 进入沉浸式的触发是**滑动**：任何滚动都算，但要有一次 `pointerdown` 打底（`userGestureRef`）。进入阅读器时的位置恢复也会派发 `scroll`，那不是「开始阅读」，不加这道门会一进来就没有状态栏（模拟器实测：恢复滚到 268 时状态栏还在，用户滑动后收起）。退出只有点中带一条路——移动端不再按滚动方向唤出顶栏。
+- 桌面端这些都不生效：整片画面仍是顶栏开关。
+
+系统栏的显隐交给原生插件 `tauri-plugin-mojuan-system-bars`（`src/lib/hooks/use-system-bars.ts` 包一层，只在窄屏调用；桌面端命令存在但什么都不做）。阅读画布是暗的，所以栏内图标一律取浅色，离开阅读器时按当前主题还原，否则浅色图标会被带到浅底的页面上。
+
+安全区用 `env(safe-area-inset-*)`，与外壳其余页面同一个来源：顶栏的 `padding-top` 取 `max(0.375rem, env(safe-area-inset-top))`（6px 是顶栏自己的内边距，让位时不能吃掉它），滚动容器补 `env(safe-area-inset-bottom)` 给末尾的加载行与「最后一话」让位。Android 的 WebView 确实提供这两个值（模拟器实测状态栏 49px、导航栏 24px），而且**栏隐藏时底部那个自己变成 0**——沉浸式里不会留一条空隙，不必再按状态判断。
+
 ## 验证桌面界面（不使用截图）
 
 应用内跑着 `tauri-plugin-mcp-bridge`（WebSocket 127.0.0.1:9223），可以用 `apps/mojuan/scripts/` 下的两个脚本在运行中的应用里读 DOM 与计算样式：
@@ -192,3 +205,17 @@ node apps/mojuan/scripts/audit-contrast.mjs               # 逐路由扫文字�
 拖动、点击这类交互可以用合成的 `PointerEvent` 驱动（真实鼠标事件按不住）：事件要派发在指针下面的那个元素上
 （行内容的链接或按钮），不是 `window`——motion 的监听挂在 window 的捕获阶段，两种都能收到，但应用自己挂在
 元素上的处理器只认前者。一次探测返回时动画还没结算，拖动与读结果要分成两次探测，中间留一秒多。
+
+同一个桥也能连 Android 模拟器里的应用（debug 包含 mcp-bridge）：`adb forward tcp:9223 tcp:9223` 之后
+`probe-app.mjs` 照常用（注意方向是 forward——桥是设备端的服务；桌面端跑着同一个端口时先 `adb forward --remove`
+把端口让出来）。三点实测的差别：
+
+- **单次脚本约 5 秒超时**（超时后 WebSocket 报 `Script execution timeout`，但脚本仍在页面里继续跑）。
+  带等待的探测要拆成多步，每步自己只等 1–3 秒；导航之后的那次等待放在下一步里，或者在外面用 `sleep` 拉开。
+- **桌面端的桥不接 async 脚本**：带顶层 `await` 的脚本返回 `data: null`（Android 端同样写法正常），
+  桌面探测一律写成同步的，等待交给外面的 `sleep`。
+- **保留页面（KeepAlive）里有隐藏的槽位**：`document.querySelector(".overflow-y-auto")` 之类会选中隐藏页的元素
+  （`clientHeight` 为 0、计算样式也不对）。选择器要先落在当前页的根上（阅读器是 `.bg-reader-canvas`）。
+
+页面像素的核对（例如系统栏是不是真的透明、栏内图标是不是浅色）用 `adb exec-out screencap -p` 存成 PNG 再写脚本统计
+亮度，比截屏目视可靠：状态栏那一条平均亮度接近画布色、又有一小撮亮像素（时钟与电池），就是「透明栏 + 浅色图标」。

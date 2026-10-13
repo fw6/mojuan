@@ -21,6 +21,7 @@ mod ota;
 mod app;
 mod commands;
 mod downloads;
+mod system_bars;
 
 /// 应用缓存目录（装配时解析 app cache dir 填充，代理线程里拿不到 AppHandle）：
 /// 图片代理缓存与抓取结果缓存共用。

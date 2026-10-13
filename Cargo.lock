@@ -2419,6 +2419,7 @@ dependencies = [
  "tauri-plugin-fs",
  "tauri-plugin-mcp-bridge",
  "tauri-plugin-mojuan-render",
+ "tauri-plugin-mojuan-system-bars",
  "tauri-plugin-mojuan-update",
  "tauri-plugin-opener",
  "tauri-plugin-store",
@@ -4702,6 +4703,16 @@ name = "tauri-plugin-mojuan-render"
 version = "0.1.0"
 dependencies = [
  "mojuan-core",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+]
+
+[[package]]
+name = "tauri-plugin-mojuan-system-bars"
+version = "0.1.0"
+dependencies = [
  "serde",
  "serde_json",
  "tauri",

@@ -3,6 +3,7 @@ members = [
     "apps/mojuan/src-tauri",
     "crates/mojuan-core",
     "crates/tauri-plugin-mojuan-render",
+    "crates/tauri-plugin-mojuan-system-bars",
     "crates/tauri-plugin-mojuan-update",
 ]
 # 中间结果目录里的第三方 Cargo.toml 不进 workspace：pnpm install 会扫全树并对每个

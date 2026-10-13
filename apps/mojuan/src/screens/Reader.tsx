@@ -35,6 +35,9 @@ import { getSettings } from "../lib/storage/settings";
 import { cn } from "../lib/utils";
 import { useHoverCapable } from "../lib/hooks/use-hover-capable";
 import { useReaderPosition } from "../lib/hooks/use-reader-position";
+import { useSystemBars } from "../lib/hooks/use-system-bars";
+import { useIsMobile } from "../lib/platform";
+import { tapZone } from "../lib/tap-zones";
 import { virtualizerAdapter } from "../lib/reader-virtualizer";
 import ProxyImage from "../components/ProxyImage";
 import { useToast } from "../components/toast";
@@ -65,6 +68,8 @@ const OVERSCAN_MAX = 8;
 const CURSOR_IDLE_MS = 2000;
 /** 方向判定死区：小于这个位移不切换顶栏，免得滚动惯性里反复闪。 */
 const SCROLL_DIRECTION_SLOP = 4;
+/** 顶栏自己的上内边距（py-1.5），让开状态栏时不能把它吃掉。 */
+const CHROME_PADDING_TOP = "0.375rem";
 
 function learnedRatio(source: string | undefined): number {
     const samples = source ? ratioSamples.get(source) : undefined;
@@ -88,6 +93,7 @@ export default function Reader({ local = false }: { local?: boolean }) {
     const navigate = useNavigate();
     const toast = useToast();
     const canHover = useHoverCapable();
+    const isMobile = useIsMobile();
 
     const [comic, setComic] = useState<Comic | null>(null);
     const [chapters, setChapters] = useState<Chapter[]>([]);
@@ -104,10 +110,20 @@ export default function Reader({ local = false }: { local?: boolean }) {
     const [viewportHeight, setViewportHeight] = useState(0);
     // 顶栏显隐（滚动方向与点击画面切换）与光标静止隐去，共同构成沉浸阅读
     const [chromeVisible, setChromeVisible] = useState(true);
+    // 沉浸式阅读（移动端）：顶栏与系统栏一起收走，整屏让给漫画
+    const [immersive, setImmersive] = useState(false);
     const [cursorIdle, setCursorIdle] = useState(false);
     const [ratio, setRatio] = useState(
         () => learnedRatio(source) || FALLBACK_RATIO[source ?? ""] || DEFAULT_RATIO,
     );
+
+    // 系统栏（状态栏与导航栏）：沉浸式时隐藏
+    useSystemBars(immersive);
+    /** 顶栏是否在屏上：移动端由沉浸式状态决定（滑动进沉浸、点中带退出），
+     *  桌面端仍是随滚动方向显隐。 */
+    const chromeShown = isMobile ? !immersive : chromeVisible;
+    /** 全屏状态：移动端是沉浸式阅读（收走系统栏），桌面端是窗口全屏。 */
+    const chromeFull = isMobile ? immersive : fullscreen;
 
     const containerRef = useRef<HTMLDivElement>(null);
     const columnRef = useRef<HTMLDivElement>(null);
@@ -126,6 +142,9 @@ export default function Reader({ local = false }: { local?: boolean }) {
     const progressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const viewportHeightRef = useRef(800);
     const lastTopRef = useRef(0);
+    /** 用户已经有过一次手势：进入阅读器时的位置恢复也会派发 scroll 事件，
+     *  那不是「开始阅读」，不能让它把状态栏收走。 */
+    const userGestureRef = useRef(false);
     const chromeRef = useRef(true);
     const cursorIdleRef = useRef(false);
     const cursorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -308,9 +327,15 @@ export default function Reader({ local = false }: { local?: boolean }) {
             const top = el.scrollTop;
             const delta = top - lastTopRef.current;
             lastTopRef.current = top;
-            // 向下滚收起顶栏，向上滚或回到顶部唤出
-            if (delta > SCROLL_DIRECTION_SLOP) setChrome(false);
-            else if (delta < -SCROLL_DIRECTION_SLOP || top < 16) setChrome(true);
+            if (isMobile) {
+                // 开始阅读（滑动，或点两侧翻页带来的滚动）即进沉浸式；退出靠点中带
+                if (userGestureRef.current) setImmersive(true);
+            } else if (delta > SCROLL_DIRECTION_SLOP) {
+                // 向下滚收起顶栏，向上滚或回到顶部唤出
+                setChrome(false);
+            } else if (delta < -SCROLL_DIRECTION_SLOP || top < 16) {
+                setChrome(true);
+            }
             wakeCursor();
         }
         if (progressTimer.current !== null) clearTimeout(progressTimer.current);
@@ -339,7 +364,7 @@ export default function Reader({ local = false }: { local?: boolean }) {
                 void touchHistory(c, at.chapterIndex);
             }
         }, 250);
-    }, [appendChapter, record, setChrome, wakeCursor]);
+    }, [appendChapter, record, setChrome, wakeCursor, isMobile]);
 
     // 进入：加载详情（漫画 + 过滤后章节）+ 首章图片，并记一条历史
     // 换话时这个 effect 会重跑（chapterIndex 在依赖里），但不重置 ready：
@@ -461,14 +486,44 @@ export default function Reader({ local = false }: { local?: boolean }) {
         setChrome(!next);
     }, [fullscreen, setChrome]);
 
-    /** 点击画面切换顶栏：控件自己的点击与文字拖选不算。 */
+    /** 翻一屏。阅读形态是连续滚动，所以「一页」就是一屏：长条漫一页好几屏，
+     *  按图片翻会跳过一大段。 */
+    const turnPage = useCallback((direction: 1 | -1) => {
+        const el = containerRef.current;
+        if (!el) return;
+        // 位移降级：系统开了「减少动态效果」时直接跳过去（beui.css 那条只压 CSS 的
+        // scroll-behavior，JS 这个 behavior 选项它管不到）
+        const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+        el.scrollTo({
+            top: el.scrollTop + direction * el.clientHeight,
+            behavior: reduce ? "auto" : "smooth",
+        });
+    }, []);
+
+    /** 记下「用户碰过画面」：位置恢复也会派发 scroll，那不是阅读。 */
+    const onPointerDown = useCallback(() => {
+        userGestureRef.current = true;
+    }, []);
+
+    /** 点击画面：移动端按横向三分带分流（左翻上一页、中切沉浸式、右翻下一页），
+     *  桌面端整片画面都是顶栏开关。控件自己的点击与文字拖选不算。 */
     const onContainerClick = useCallback(
         (e: MouseEvent<HTMLDivElement>) => {
-            if ((e.target as HTMLElement).closest("a,button")) return;
+            if ((e.target as HTMLElement).closest("a,button,header")) return;
             if (window.getSelection()?.toString()) return;
-            setChrome(!chromeRef.current);
+            if (!isMobile) {
+                setChrome(!chromeRef.current);
+                return;
+            }
+            const el = containerRef.current;
+            if (!el) return;
+            const rect = el.getBoundingClientRect();
+            const zone = tapZone(e.clientX - rect.left, rect.width);
+            if (zone === "prev") turnPage(-1);
+            else if (zone === "next") turnPage(1);
+            else setImmersive((v) => !v);
         },
-        [setChrome],
+        [setChrome, isMobile, turnPage],
     );
 
     // 自动裁边（设置项）：页面略放大，裁掉边缘空白
@@ -524,12 +579,19 @@ export default function Reader({ local = false }: { local?: boolean }) {
             <div
                 ref={containerRef}
                 onScroll={onScroll}
+                onPointerDown={onPointerDown}
                 onPointerMove={wakeCursor}
                 onClick={onContainerClick}
                 className={cn(
                     "min-h-0 flex-1 overflow-y-auto overscroll-contain",
                     cursorIdle && "cursor-none",
                 )}
+                // 画布铺到导航栏下面（栏是半透明的，漫画从它下面过），给末尾的加载行与
+                // 「最后一话」让出一条。安全区随栏的显隐自己变（实测 Android 17：栏在时
+                // 24px、栏隐藏后 0px），所以沉浸式里不留空隙。
+                style={{
+                    paddingBottom: "env(safe-area-inset-bottom)",
+                }}
             >
                 {bootFailed ? (
                     <div className="flex flex-col items-center justify-center gap-3 px-6 py-20 text-center">
@@ -640,10 +702,16 @@ export default function Reader({ local = false }: { local?: boolean }) {
                     // 阅读器没有侧边栏、顶栏从窗口左边缘开始，返回按钮与作品名会压在按钮组底下
                     windowChrome() === "macos" && "pl-19",
                     "transition-[opacity,translate] duration-200 ease-out",
-                    chromeVisible
+                    chromeShown
                         ? "translate-y-0 opacity-100"
                         : "pointer-events-none -translate-y-2 opacity-0",
                 )}
+                // 顶栏是浮层，状态栏由它自己让开（外壳把阅读器的顶部安全区交给这里）：
+                // 栏显示时是半透明的画布色，漫画从栏下穿过，栏一收就是整屏。
+                // 6px 是顶栏自己的内边距，让位时不能把它吃掉。
+                style={{
+                    paddingTop: `max(${CHROME_PADDING_TOP}, env(safe-area-inset-top))`,
+                }}
             >
                 <Link
                     to={backTo}
@@ -670,12 +738,14 @@ export default function Reader({ local = false }: { local?: boolean }) {
                 </div>
                 <button
                     type="button"
-                    aria-label={fullscreen ? "退出全屏" : "全屏"}
-                    aria-pressed={fullscreen}
-                    onClick={() => void toggleFullscreen()}
+                    aria-label={chromeFull ? "退出全屏" : "全屏"}
+                    aria-pressed={chromeFull}
+                    // 移动端没有窗口全屏（tao 在 Android 上是空实现），这颗按钮切的是
+                    // 沉浸式阅读：隐藏系统栏，与点中带是同一个状态
+                    onClick={() => (isMobile ? setImmersive((v) => !v) : void toggleFullscreen())}
                     className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-reader-muted transition-colors hover:bg-white/10 hover:text-reader-foreground"
                 >
-                    {fullscreen ? (
+                    {chromeFull ? (
                         <Minimize className="size-4" />
                     ) : (
                         <Maximize className="size-4" />

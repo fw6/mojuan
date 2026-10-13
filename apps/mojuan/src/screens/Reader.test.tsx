@@ -13,6 +13,7 @@ vi.mock("../api", () => ({
     crawlCached: vi.fn(),
     imgSrc: vi.fn((url: string) => url),
     listDownloaded: vi.fn().mockResolvedValue({}),
+    setSystemBars: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../lib/storage/history", () => ({
@@ -35,7 +36,7 @@ vi.mock("@tauri-apps/api/window", () => ({
     }),
 }));
 
-import { crawl, crawlCached, imgSrc, listDownloaded } from "../api";
+import { crawl, crawlCached, imgSrc, listDownloaded, setSystemBars } from "../api";
 import { touchHistory } from "../lib/storage/history";
 import { getProgress, setProgress } from "../lib/storage/progress";
 import { ToastProvider } from "../components/toast";
@@ -44,6 +45,7 @@ const mockedCrawl = vi.mocked(crawl);
 const mockedCrawlCached = vi.mocked(crawlCached);
 const mockedImgSrc = vi.mocked(imgSrc);
 const mockedListDownloaded = vi.mocked(listDownloaded);
+const mockedSetSystemBars = vi.mocked(setSystemBars);
 const mockedHistory = vi.mocked(touchHistory);
 const mockedProgress = vi.mocked(getProgress);
 const mockedSetProgress = vi.mocked(setProgress);
@@ -165,6 +167,10 @@ function scrollTopForPoint(point: number): number {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    // mock 的实现不随 clearAllMocks 复位：上一个用例留下的下载清单与进度记录会漏进
+    // 下一个（顺序一变就红），这里按各自的默认取值复位，用例再按需覆盖。
+    mockedListDownloaded.mockResolvedValue({});
+    mockedProgress.mockResolvedValue(null);
     stubCrawl();
 });
 
@@ -309,5 +315,136 @@ describe("阅读器的详情与取图来源", () => {
             expect.anything(),
         );
         await waitFor(() => expect(mockedHistory).toHaveBeenCalled());
+    });
+});
+
+/* ---------- 移动端的全屏阅读 ---------- */
+
+/** test-setup 给 matchMedia 的桩恒为 false（useIsMobile 走窄屏判断）。 */
+const realMatchMedia = window.matchMedia;
+
+/** 窄屏：useIsMobile 读 matchMedia，这里换成按查询回答（窄屏查询为真）。 */
+function stubMobile() {
+    window.matchMedia = ((query: string) => ({
+        matches: query.includes("max-width"),
+        media: query,
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+}
+
+/** jsdom 没有布局：阅读区的宽度由 getBoundingClientRect 给（三分带按它算）。 */
+function stubWidth(el: HTMLElement, width: number) {
+    el.getBoundingClientRect = () =>
+        ({
+            left: 0,
+            top: 0,
+            right: width,
+            bottom: 0,
+            width,
+            height: 0,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+        }) as DOMRect;
+}
+
+/** 顶栏（浮层）当前是否收着。 */
+function chromeHidden(container: HTMLElement): boolean {
+    const header = container.querySelector("header");
+    if (!header) throw new Error("找不到阅读器顶栏");
+    return header.className.includes("opacity-0");
+}
+
+describe("移动端的全屏阅读", () => {
+    beforeEach(() => {
+        // 虚拟器按元素 offsetHeight 取外层尺寸，jsdom 里恒为 0（页面挂不出来）
+        Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+            get: () => VIEWPORT,
+            configurable: true,
+        });
+        stubMobile();
+    });
+
+    afterEach(() => {
+        window.matchMedia = realMatchMedia;
+    });
+
+    it("初始进入展示状态栏与导航栏", async () => {
+        const { container } = renderReader();
+        await waitFor(() => expect(contentHeight(container)).toBeGreaterThan(0));
+
+        expect(mockedSetSystemBars).toHaveBeenCalledWith({
+            hidden: false,
+            lightIcons: true,
+        });
+        expect(chromeHidden(container)).toBe(false);
+    });
+
+    it("点左带翻上一页、点右带翻下一页（一屏一步）", async () => {
+        const { container } = renderReader();
+        await waitFor(() => expect(contentHeight(container)).toBeGreaterThan(0));
+        const sc = scroller(container);
+        stubGeometry(sc, contentHeight(container));
+        stubWidth(sc, 300);
+
+        sc.scrollTop = 1000;
+        fireEvent.click(sc, { clientX: 290 });
+        expect(sc.scrollTop).toBe(1000 + VIEWPORT);
+
+        sc.scrollTop = 1000;
+        fireEvent.click(sc, { clientX: 10 });
+        expect(sc.scrollTop).toBe(1000 - VIEWPORT);
+    });
+
+    it("点中带切换沉浸式：系统栏隐藏，再点一次还原", async () => {
+        const { container } = renderReader();
+        await waitFor(() => expect(contentHeight(container)).toBeGreaterThan(0));
+        const sc = scroller(container);
+        stubGeometry(sc, contentHeight(container));
+        stubWidth(sc, 300);
+
+        mockedSetSystemBars.mockClear();
+        fireEvent.click(sc, { clientX: 150 });
+        await waitFor(() => expect(chromeHidden(container)).toBe(true));
+        expect(mockedSetSystemBars).toHaveBeenCalledWith({
+            hidden: true,
+            lightIcons: true,
+        });
+
+        mockedSetSystemBars.mockClear();
+        fireEvent.click(sc, { clientX: 150 });
+        await waitFor(() => expect(chromeHidden(container)).toBe(false));
+        expect(mockedSetSystemBars).toHaveBeenCalledWith({
+            hidden: false,
+            lightIcons: true,
+        });
+    });
+
+    it("滑动进沉浸式，恢复阅读位置的那次滚动不算", async () => {
+        const resolve = deferredProgress();
+        const { container } = renderReader();
+        await waitFor(() => expect(contentHeight(container)).toBeGreaterThan(0));
+        const sc = scroller(container);
+        stubGeometry(sc, contentHeight(container));
+
+        // 恢复把那一处放回视口中心：不是用户滑的，状态栏留着
+        await act(async () => {
+            resolve({ chapterIndex: 1, pageIndex: 2, offsetInPage: 0.5, updatedAt: 1 });
+        });
+        // 落点要等页面量到高度（恢复自己会等下一帧）
+        await waitFor(() => expect(sc.scrollTop).toBeGreaterThan(0));
+        fireEvent.scroll(sc);
+        expect(chromeHidden(container)).toBe(false);
+
+        // 手指落下之后的滚动才是「开始阅读」
+        fireEvent.pointerDown(sc);
+        sc.scrollTop += 200;
+        fireEvent.scroll(sc);
+        await waitFor(() => expect(chromeHidden(container)).toBe(true));
     });
 });

@@ -42,6 +42,25 @@
   连续两次干净 → 取 HTML」，不含任何站点选择器。
 - 布局细节、验证页识别、移动端离屏 webview 的取舍与维护注意见 `docs/research/webview-render-channel.md`。
 
+## 移动端系统栏（全屏阅读）
+
+阅读器的全屏阅读要隐藏状态栏与导航栏，并让栏内图标取浅色（阅读画布是暗的）。tauri 的窗口 API
+给不出这件事：`WebviewWindow::set_fullscreen` 在 Android 上是空实现（tao 只打一条
+`Cannot set fullscreen on Android`），系统栏的显隐与图标明暗都要经平台的窗口 insets 控制器。
+
+- 自建插件 `crates/tauri-plugin-mojuan-system-bars/`：Android 用 `WindowInsetsControllerCompat`
+  的 `hide/show` + `isAppearanceLightStatusBars`（Kotlin），iOS 换掉 `UIViewController` 的
+  `prefersStatusBarHidden` / `preferredStatusBarStyle` 实现读一份全局状态（Swift）。命令从
+  tauri 的 ipc 线程进来，窗口与 insets 的操作先切主线程。
+- 宿主命令 `set_system_bars`（`src-tauri/src/system_bars.rs`）：async 命令 + `spawn_blocking`——
+  原生侧要回主线程，同步命令在主线程上等它会自己等自己。桌面端插件的实现是空的（桌面窗口没有
+  系统栏），命令在两端都注册，前端不必按平台分叉。
+- 安全区不从这里给：前端用 `env(safe-area-inset-*)`，与外壳其余页面同一个来源。Android 的 WebView
+  确实提供这两个值（模拟器实测状态栏 49px、导航栏 24px），栏隐藏时底部那个自己变成 0。
+- 栏是透明的：`gen/android` 的 MainActivity 调 `enableEdgeToEdge()`（tauri CLI 的模板），内容
+  铺满整窗、栏透明，插件只改显隐与图标明暗，不动那条设置。`gen/` 不入库，重新 init 会重建。
+- iOS 侧只写到代码为止：本机 Xcode 27 的构建走不通（gotchas 第 9 条），Swift 那半边没有在设备上跑过。
+
 ## 自动更新通道（`apps/updater/`）
 
 - 桌面端用官方 tauri-plugin-updater；`plugins.updater.endpoints` 指向

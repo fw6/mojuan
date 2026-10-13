@@ -26,6 +26,7 @@ serde_json = "1"
 urlencoding = "2"
 mojuan-core = { path = "../../../crates/mojuan-core" }
 tauri-plugin-mojuan-render = { path = "../../../crates/tauri-plugin-mojuan-render" }
+tauri-plugin-mojuan-system-bars = { path = "../../../crates/tauri-plugin-mojuan-system-bars" }
 tauri-plugin-mojuan-update = { path = "../../../crates/tauri-plugin-mojuan-update" }
 tauri-plugin-store = "2.4.4"
 tauri-plugin-dialog = "2.7.2"

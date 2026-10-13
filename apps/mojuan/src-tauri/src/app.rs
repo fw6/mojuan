@@ -5,7 +5,7 @@ use crate::ota;
 #[cfg(desktop)]
 use crate::render;
 use crate::{
-    commands, downloads, img_proxy, APP_CACHE_DIR, DOWNLOAD_DIR, IMG_PROXY_PORT,
+    commands, downloads, img_proxy, system_bars, APP_CACHE_DIR, DOWNLOAD_DIR, IMG_PROXY_PORT,
     RESULT_CACHE_MAX_AGE_SECS,
 };
 use std::sync::Arc;
@@ -28,6 +28,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_mojuan_render::init())
+        .plugin(tauri_plugin_mojuan_system_bars::init())
         .plugin(tauri_plugin_mojuan_update::init())
         // 主窗口销毁时连带销毁隐藏渲染 webview，保持「关掉全部窗口即退出」的原有行为
         .on_window_event(|window, event| {
@@ -58,6 +59,7 @@ pub fn run() {
             commands::mojuan_version,
             commands::img_proxy_port,
             commands::img_proxy_set_download_dir,
+            system_bars::set_system_bars,
             downloads::subscribe_downloads,
             downloads::unsubscribe_downloads,
             downloads::get_downloads,

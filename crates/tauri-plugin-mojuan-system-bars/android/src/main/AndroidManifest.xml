@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 系统栏控制不需要权限、组件或接收器，这里只占位让 Gradle 合并时有这个模块的清单。 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+</manifest>

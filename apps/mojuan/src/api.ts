@@ -77,6 +77,12 @@ export function crawlCached<T>(
 
 export const mojuanVersion = () => invoke<string>("mojuan_version");
 
+/** 设置移动端系统栏（状态栏与导航栏）的显隐与图标明暗。
+ * 桌面端没有系统栏，调用什么都不做——命令在两端都注册，调用方不必按平台分叉。
+ * 安全区不从这里取：用 CSS 的 `env(safe-area-inset-*)`，与外壳其余页面同一个来源。 */
+export const setSystemBars = (opts: { hidden: boolean; lightIcons: boolean }) =>
+    invoke<void>("set_system_bars", opts);
+
 /** 扫描下载目录/本地文件夹：`[{source, comicId, chapterCount, title, cover}]`。 */
 export const scanLocal = (dir: string) =>
     invoke<string>("scan_local", { dir }).then(
