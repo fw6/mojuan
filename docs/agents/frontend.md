@@ -148,16 +148,18 @@ id，manhuagui 这类源是七八位数字）。下载页的数据来自入队�
 
 预取：虚拟器的 `overscan` 按**视口上下各两屏**换算成页数（`PREFETCH_SCREENS`，长条漫一页就超过两屏所以下限 1，上限 8）。挂载范围就是预取范围，挂载到的页一律 `loading="eager"`——浏览器自己的 `lazy` 只提前约一屏，会把已经挂载好的后两屏又压回「滚到才取」。下一话的触发同样按两屏算（`nearBottomByPx`，按像素而不是滚动比例，长条漫与常规页才都合适）。
 
-阅读位置：记录与恢复都在 `src/lib/hooks/use-reader-position.ts`（`useReaderPosition`），组件只把滚动容器、虚拟器适配面（`src/lib/reader-virtualizer.ts` 把 `measurementsCache` 转成 `sizes()` / `entryAt()` / `scrollToOffset()`，稀疏空洞在那里归 0）、已加载页、章节列表与作品交进去，拿到一个 `record()`。进度记录的是「话内第几张图 + 图内位置」（`ProgressRecord` 的 `pageIndex` / `offsetInPage`，按视口中心算），恢复时把那一处放回视口中心（页面列表就绪后滚一次，容器还没铺开时等下一帧）。用页码而不是整话比例，是因为比例乘的是「实测 + 估算」混合的整话总高，两次会话的混合构成不同会落到相邻的页上；页码在两次会话里指向同一张图（恢复与虚拟器渲染读的是同一份 `measurementsCache`）。图内位置要留：长条漫一页好几屏，只记页码会跳很远。每个实例只恢复一次，跨话连读追加的页不会再把人拽回旧位置。写进度与记历史分开：`record()` 只写进度，历史由滚动回调补一次，且只记元数据有真实标题的条目。
+阅读位置：记录与恢复都在 `src/lib/hooks/use-reader-position.ts`（`useReaderPosition`），组件只把滚动容器、虚拟器适配面（`src/lib/reader-virtualizer.ts` 把 `measurementsCache` 转成 `sizes()` / `entryAt()` / `scrollToOffset()`，稀疏空洞在那里归 0）、已加载页、章节列表与作品交进去，拿到一个 `record()`。进度记录的是「话内第几张图 + 图内位置」（`ProgressRecord` 的 `pageIndex` / `offsetInPage`，按视口中心算），并随位置一起记下该话的标题（`chapterTitle`）——详情页的「继续阅读」据此显示话名，不必等章节表取到。恢复时把那一处放回视口中心（页面列表就绪后滚一次，容器还没铺开时等下一帧）。用页码而不是整话比例，是因为比例乘的是「实测 + 估算」混合的整话总高，两次会话的混合构成不同会落到相邻的页上；页码在两次会话里指向同一张图（恢复与虚拟器渲染读的是同一份 `measurementsCache`）。图内位置要留：长条漫一页好几屏，只记页码会跳很远。每个实例只恢复一次，跨话连读追加的页不会再把人拽回旧位置。写进度与记历史分开：`record()` 只写进度，历史由滚动回调补一次，且只记元数据有真实标题的条目。
+
+章节的展示名一律走 `src/lib/chapters.ts` 的 `chapterLabel(title, index)`：源给的标题优先，缺失时回落到「第 N 话」。话序号只是源内部的 id（漫画柜是 `/comic/<id>/<七八位数字>.html` 里抠出来的，kxmanhua 是 `/detail/` 后面那串），拿它当名字显示会看到一长串数字。历史行（`HistoryRecord.chapterTitle`）、详情页的「继续阅读」（`ProgressRecord.chapterTitle`，缺失时按序号查章节表）、下载页的章节行都用它。
 
 ## 阅读器的数据来源（含已下载章节的离线阅读）
 
 两条入口共用同一个 `Reader`：`/reader/...`（详情页的「继续阅读」与章节块）与 `/local/...`（书架「下载」tab，`local` 为真）。章节表与页面按「手头有什么用什么」取：
 
-- 章节表：`local` 模式只认下载目录；其余先读结果缓存（详情页每次进都刷新它，所以离线进阅读器也立刻有带标题的章节表），缓存没有但这部作品有下载就用下载清单（元数据合成，`syntheticComicRef` 标记），都没有才联网拉详情（渲染源的章节中转链也靠这次抓取），联网也失败才算首屏失败。
+- 章节表：`local` 模式只认下载目录；其余先读结果缓存（详情页每次进都刷新它，所以离线进阅读器也立刻有带标题的章节表），缓存没有但这部作品有下载就用下载清单（comic 快照合成，`syntheticComicRef` 标记；话名从下载目录里的 `comic.json` 取，没有这份元数据才回落到话序号），都没有才联网拉详情（渲染源的章节中转链也靠这次抓取），联网也失败才算首屏失败。
 - 页面：下载清单里有这一话就直接读磁盘上的页（原图 URL 优先，旧数据回落到 `chapter_<n>/<file>` 相对路径），否则走 `images` op；一个地址都取不到按加载失败处理（离线且这一话没下载就是这样），不留空画布。
 - 取图统一走 `imgSrc(page.url, {source, comicId})`：代理先查下载索引读本地文件，未命中才联网。所以「已下载的话」在线时也读磁盘，断网时照常可读。
-- 历史只在章节表有真实标题时写：下载目录兜底时标题只有话序号，历史 tab 保持链在线 reader（wayfinder #19 的口径）。
+- 历史只在这部作品有真实快照时写：下载目录兜底时 comic 是合成的，历史 tab 保持链在线 reader（wayfinder #19 的口径）。
 
 端到端核对（应用在跑）：`node scripts/verify-offline-reading.mjs` 造一份指向不存在域名的假下载数据，确认 `/local/...` 与 `/reader/...` 两条入口的图片都从磁盘渲染出来；`node scripts/verify-online-reader-network.mjs` 确认真实作品的在线阅读没被改坏。
 

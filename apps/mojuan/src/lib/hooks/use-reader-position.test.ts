@@ -25,7 +25,10 @@ const mockedSet = vi.mocked(setProgress);
 
 const COMIC = { source: "webtoons", id: "webtoons-1" };
 /** 话序号从 126 递减（与源返回的顺序一致）。 */
-const CHAPTERS = [{ index: 126 }, { index: 125 }];
+const CHAPTERS = [
+    { index: 126, title: "第 126 话" },
+    { index: 125, title: "第 125 话" },
+];
 /** 已加载页：前三页属于第 0 话（index 126），后两页属于第 1 话（index 125）。 */
 const PAGES = [
     { chapterIdx: 0 },
@@ -86,6 +89,7 @@ describe("useReaderPosition（记录）", () => {
         container.current!.scrollTop = 150; // 中心 550：落在第 3 页（300..600）里
         expect(result.current.record()).toEqual({
             chapterIndex: 126,
+            chapterTitle: "第 126 话",
             pageIndex: 2,
             offsetInPage: (550 - 300) / 300,
         });
@@ -94,6 +98,7 @@ describe("useReaderPosition（记录）", () => {
             "webtoons-1",
             expect.objectContaining({
                 chapterIndex: 126,
+                chapterTitle: "第 126 话",
                 pageIndex: 2,
                 offsetInPage: (550 - 300) / 300,
             }),
@@ -105,6 +110,7 @@ describe("useReaderPosition（记录）", () => {
         container.current!.scrollTop = 1000; // 中心 1400：第 5 页（1000..1500）
         expect(result.current.record()).toEqual({
             chapterIndex: 125,
+            chapterTitle: "第 125 话",
             pageIndex: 1,
             offsetInPage: (1400 - 1000) / 500,
         });

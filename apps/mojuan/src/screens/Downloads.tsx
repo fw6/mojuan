@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { Channel } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { AnimatePresence, motion } from "motion/react";
@@ -21,6 +22,7 @@ import {
     groupDownloads,
     type DownloadGroup,
 } from "../lib/downloads";
+import { chapterLabel } from "../lib/chapters";
 import { EASE_OUT, SPRING_PANEL } from "../lib/ease";
 import { sourceTitle } from "../lib/sources";
 import { cn } from "../lib/utils";
@@ -195,13 +197,11 @@ function ComicGroup({
                 expanded ? "border-primary/40" : "border-border",
             )}
         >
-            <button
-                type="button"
-                onClick={() => setExpanded((v) => !v)}
-                aria-expanded={expanded}
-                className="w-full p-3.5 text-left transition-colors hover:bg-secondary/50"
-            >
-                <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 p-3.5">
+                <Link
+                    to={`/comic/${group.source}/${encodeURIComponent(group.comicId)}`}
+                    className="flex min-w-0 flex-1 items-center gap-3 rounded-md transition-colors hover:bg-secondary/50"
+                >
                     <Cover
                         src={
                             group.cover
@@ -252,25 +252,33 @@ function ComicGroup({
                             </span>
                         </div>
                     </div>
-                    <div className="flex shrink-0 items-center gap-2.5">
-                        <AnimatedBadge
-                            status={STATUS_BADGE[group.status]}
-                            size="sm"
-                            contentKey={group.status}
-                            className={STATUS_BADGE_CLASS[group.status]}
-                        >
-                            {STATUS_LABEL[group.status]}
-                        </AnimatedBadge>
+                </Link>
+                <div className="flex shrink-0 items-center gap-2.5">
+                    <AnimatedBadge
+                        status={STATUS_BADGE[group.status]}
+                        size="sm"
+                        contentKey={group.status}
+                        className={STATUS_BADGE_CLASS[group.status]}
+                    >
+                        {STATUS_LABEL[group.status]}
+                    </AnimatedBadge>
+                    <button
+                        type="button"
+                        onClick={() => setExpanded((v) => !v)}
+                        aria-expanded={expanded}
+                        aria-label={expanded ? "收起章节" : "展开章节"}
+                        className="rounded-md p-2.5 text-muted-foreground transition-colors hover:bg-secondary/50 hover:text-foreground"
+                    >
                         <motion.span
                             animate={{ rotate: expanded ? 180 : 0 }}
                             transition={{ duration: 0.2, ease: EASE_OUT }}
-                            className="text-muted-foreground"
+                            className="block"
                         >
                             <ChevronDown className="size-4" />
                         </motion.span>
-                    </div>
+                    </button>
                 </div>
-            </button>
+            </div>
 
             <AnimatePresence initial={false}>
                 {expanded && (
@@ -318,7 +326,7 @@ function ChapterRow({
         <div className="border-t border-border px-3.5 py-2.5 first:border-t-0">
             <div className="flex items-center justify-between gap-2.5">
                 <span className="truncate text-xs font-medium text-foreground">
-                    {chapterLabel(task)}
+                    {chapterLabel(task.chapterTitle, task.chapterIndex)}
                 </span>
                 <div className="flex items-center gap-1.5">
                     <AnimatedBadge
@@ -363,9 +371,4 @@ function ChapterRow({
             )}
         </div>
     );
-}
-
-/** 话名：源给的章节标题（如「第 12 话」）；没有标题时回落到话序号。 */
-function chapterLabel(task: DownloadTaskView): string {
-    return task.chapterTitle || `第 ${task.chapterIndex} 话`;
 }

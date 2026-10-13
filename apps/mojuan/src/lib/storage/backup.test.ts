@@ -18,7 +18,7 @@ beforeEach(() => {
 describe("WebDAV 备份/恢复（wayfinder #24/#25）", () => {
     it("exportBackupJson 聚合三域为 {version, exportedAt, favorites, history, progress}", async () => {
         await toggleFavorite(testComic("a", "mangadex"));
-        await touchHistory(testComic("b", "webtoons"), 2);
+        await touchHistory(testComic("b", "webtoons"), 2, "第 2 话");
         await setProgress("mangadex", "a", {
             chapterIndex: 3,
             pageIndex: 4,

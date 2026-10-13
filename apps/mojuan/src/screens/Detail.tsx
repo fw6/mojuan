@@ -11,7 +11,7 @@ import {
     type Comic,
 } from "../api";
 import { useCrawl } from "../lib/hooks/use-crawl";
-import { filterExternalChapters } from "../lib/chapters";
+import { chapterLabel, filterExternalChapters } from "../lib/chapters";
 import { getKnownComic } from "../lib/storage/comics";
 import { isFavorite, toggleFavorite } from "../lib/storage/favorites";
 import { getProgress } from "../lib/storage/progress";
@@ -44,7 +44,8 @@ export default function Detail() {
     const toast = useToast();
     const id = comicId ? decodeURIComponent(comicId) : "";
     const [favorite, setFavorite] = useState(false);
-    const [resume, setResume] = useState<number | null>(null);
+    // 阅读进度记着的那一话：话序号用来拼跳转地址，话名用来显示（进度里没记话名时从章节表取）
+    const [resume, setResume] = useState<{ index: number; title: string } | null>(null);
     // 书架（收藏 / 历史）里记着的作品信息：首屏先用它渲染，抓取结果到了再覆盖
     const [known, setKnown] = useState<Comic | null>(null);
     // 下载（多选）：磁盘上已有的章节 + 用户勾选 + 提交进度
@@ -88,7 +89,11 @@ export default function Detail() {
             ]);
             if (cancelled) return;
             setFavorite(fav);
-            if (prog) setResume(prog.chapterIndex);
+            setResume(
+                prog
+                    ? { index: prog.chapterIndex, title: prog.chapterTitle ?? "" }
+                    : null,
+            );
             setKnown(saved);
             setDownloadDir(settings.downloadDir);
             setSelecting(false);
@@ -268,12 +273,18 @@ export default function Detail() {
                         <div className="mt-5 flex flex-wrap gap-2">
                             {resume !== null && (
                                 <LinkButton
-                                    to={`/reader/${source}/${encodeURIComponent(id)}/${resume}`}
+                                    to={`/reader/${source}/${encodeURIComponent(id)}/${resume.index}`}
                                     variant="primary"
                                     size="lg"
                                 >
                                     <BookOpen className="size-4" />
-                                    继续阅读 第 {resume} 话
+                                    继续阅读{" "}
+                                    {chapterLabel(
+                                        resume.title ||
+                                            chapters.find((ch) => ch.index === resume.index)
+                                                ?.title,
+                                        resume.index,
+                                    )}
                                 </LinkButton>
                             )}
                             {resume === null && chapters.length > 0 && (
@@ -347,7 +358,7 @@ export default function Detail() {
                                 >
                                     <ChapterTile
                                         chapter={ch}
-                                        current={ch.index === resume}
+                                        current={ch.index === resume?.index}
                                         state={
                                             onDisk.has(ch.index)
                                                 ? "downloaded"

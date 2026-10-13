@@ -43,11 +43,13 @@ vi.mock("../lib/storage/sources", () => ({
 
 import { crawl, crawlCached } from "../api";
 import { getKnownComic } from "../lib/storage/comics";
+import { getProgress } from "../lib/storage/progress";
 import { ToastProvider } from "../components/toast";
 
 const mockedCrawl = vi.mocked(crawl);
 const mockedCached = vi.mocked(crawlCached);
 const mockedKnown = vi.mocked(getKnownComic);
+const mockedProgress = vi.mocked(getProgress);
 
 const COMIC: Comic = {
     id: "webtoons-1",
@@ -135,5 +137,37 @@ describe("Detail 详情页", () => {
         expect(await screen.findByText(/加载失败：fetch\(detail\): HTTP 500/)).toBeTruthy();
         expect(screen.getByText("测试作品")).toBeTruthy();
         expect(screen.getByText("第 1 话")).toBeTruthy();
+    });
+
+    it("继续阅读显示进度记录里的话名，而不是源内部的话序号", async () => {
+        // 漫画柜这类源的话序号是站内的章节 id（七八位数字），不是话名
+        mockedProgress.mockResolvedValue({
+            chapterIndex: 1234567,
+            chapterTitle: "第 117 话 决战",
+            pageIndex: 0,
+            offsetInPage: 0,
+            updatedAt: 1,
+        });
+        mockedCrawl.mockResolvedValue({
+            comic: COMIC,
+            chapters: [{ ...chapter(1234567), title: "章节表里的另一个名字" }],
+        });
+        renderDetail();
+        expect(await screen.findByText("继续阅读 第 117 话 决战")).toBeTruthy();
+    });
+
+    it("旧进度记录没有话名时，从章节表里按序号取话名", async () => {
+        mockedProgress.mockResolvedValue({
+            chapterIndex: 7,
+            pageIndex: 0,
+            offsetInPage: 0,
+            updatedAt: 1,
+        });
+        mockedCrawl.mockResolvedValue({
+            comic: COMIC,
+            chapters: [{ ...chapter(7), title: "第七话 相遇" }],
+        });
+        renderDetail();
+        expect(await screen.findByText("继续阅读 第七话 相遇")).toBeTruthy();
     });
 });

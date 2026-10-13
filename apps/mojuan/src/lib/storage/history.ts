@@ -4,6 +4,9 @@ import { comicKey, FILES, getStore } from "./store";
 export interface HistoryRecord {
     comic: Comic;
     chapterIndex: number;
+    /** 该话的标题。话序号只是源内部的 id（漫画柜是七八位数字），不能当名字显示。
+     * 改版前记下的记录没有这个字段，展示时回落到话序号。 */
+    chapterTitle?: string;
     lastReadAt: number;
 }
 
@@ -24,11 +27,16 @@ export async function getHistory(): Promise<HistoryRecord[]> {
         .sort((a, b) => b.lastReadAt - a.lastReadAt);
 }
 
-export async function touchHistory(comic: Comic, chapterIndex: number): Promise<void> {
+export async function touchHistory(
+    comic: Comic,
+    chapterIndex: number,
+    chapterTitle: string,
+): Promise<void> {
     const store = await getStore(FILES.history);
     await store.set(comicKey(comic.source, comic.id), {
         comic,
         chapterIndex,
+        chapterTitle,
         lastReadAt: nextTimestamp(),
     });
 }

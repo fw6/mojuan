@@ -38,6 +38,9 @@ export interface LocalComic {
     cover: string;
 }
 
+/** 扁平导入（旧布局，或用户自己挑的文件夹）的作品 source：它们不在任何源里，没有在线作品页。 */
+export const FLAT_SOURCE = "local";
+
 /** 一部已下载作品的元数据（`read_comic_meta`）；没有这份元数据返回 null。 */
 export interface ComicMeta {
     source: string;

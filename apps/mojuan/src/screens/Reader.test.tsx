@@ -22,6 +22,7 @@ vi.mock("../api", () => ({
     getDownloads: vi.fn().mockResolvedValue([]),
     imgSrc: vi.fn((url: string) => url),
     listDownloaded: vi.fn().mockResolvedValue({}),
+    readComicMeta: vi.fn().mockResolvedValue(null),
     setSystemBars: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -45,7 +46,7 @@ vi.mock("@tauri-apps/api/window", () => ({
     }),
 }));
 
-import { crawl, crawlCached, getDownloads, imgSrc, listDownloaded, setSystemBars } from "../api";
+import { crawl, crawlCached, getDownloads, imgSrc, listDownloaded, readComicMeta, setSystemBars } from "../api";
 import { touchHistory } from "../lib/storage/history";
 import { getProgress, setProgress } from "../lib/storage/progress";
 import { ToastProvider } from "../components/toast";
@@ -55,6 +56,7 @@ const mockedCrawlCached = vi.mocked(crawlCached);
 const mockedGetDownloads = vi.mocked(getDownloads);
 const mockedImgSrc = vi.mocked(imgSrc);
 const mockedListDownloaded = vi.mocked(listDownloaded);
+const mockedComicMeta = vi.mocked(readComicMeta);
 const mockedSetSystemBars = vi.mocked(setSystemBars);
 const mockedHistory = vi.mocked(touchHistory);
 const mockedProgress = vi.mocked(getProgress);
@@ -326,6 +328,12 @@ describe("阅读器的详情与取图来源", () => {
             expect.anything(),
         );
         await waitFor(() => expect(mockedHistory).toHaveBeenCalled());
+        // 历史带上话名：话序号只是源内部的 id，历史行显示的是标题
+        expect(mockedHistory).toHaveBeenCalledWith(
+            expect.objectContaining({ id: "webtoons-1" }),
+            1,
+            "第 1 话",
+        );
     });
 });
 
@@ -503,6 +511,26 @@ describe("阅读器的目录", () => {
         expect(chapterRow(dialog, "第 1 话").getAttribute("aria-current")).toBe("true");
         expect(chapterRow(dialog, "第 2 话").getAttribute("aria-current")).toBe(null);
         expect(within(dialog).getByText("共 2 话")).toBeTruthy();
+    });
+
+    it("章节表来自下载目录时，话名取自作品元数据（目录键只是源内部的话序号）", async () => {
+        stubOffline();
+        mockedListDownloaded.mockResolvedValue({
+            "1234567": [{ url: "https://img/0.jpg", path: "chapter_1234567/0.jpg" }],
+        });
+        mockedComicMeta.mockResolvedValue({
+            source: "manhuagui",
+            comicId: "webtoons-1",
+            title: "作品",
+            cover: "",
+            chapters: { "1234567": "第 117 话 决战" },
+        });
+        const { container } = renderReader();
+        await waitFor(() => expect(contentHeight(container)).toBeGreaterThan(0));
+
+        const dialog = await openToc();
+        expect(within(dialog).getByText("第 117 话 决战")).toBeTruthy();
+        expect(within(dialog).queryByText("第 1234567 话")).toBeNull();
     });
 
     it("已下载的话带对勾，队列里在途的话标出状态", async () => {

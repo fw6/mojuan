@@ -18,6 +18,7 @@ import {
     readComicMeta,
     deleteDownloaded,
     imgSrc,
+    FLAT_SOURCE,
     type Comic,
     type ComicMeta,
     type LocalComic,
@@ -25,6 +26,7 @@ import {
 } from "../api";
 import { getFavorites, removeFavorite } from "../lib/storage/favorites";
 import { getHistory, removeHistory, type HistoryRecord } from "../lib/storage/history";
+import { chapterLabel } from "../lib/chapters";
 import { getSettings } from "../lib/storage/settings";
 import { comicKey } from "../lib/storage/store";
 import { cn } from "../lib/utils";
@@ -200,10 +202,12 @@ export default function Library() {
                                         cover={h.comic.cover}
                                         title={h.comic.title}
                                         subtitle={h.comic.author || sourceTitle(h.comic.source)}
-                                        meta={`读到第 ${h.chapterIndex} 话`}
+                                        meta={`读到 ${chapterLabel(h.chapterTitle, h.chapterIndex)}`}
                                         badge={
                                             <AnimatedBadge status="info" size="sm">
-                                                第 {h.chapterIndex} 话
+                                                <span className="block max-w-32 truncate">
+                                                    {chapterLabel(h.chapterTitle, h.chapterIndex)}
+                                                </span>
                                             </AnimatedBadge>
                                         }
                                     />
@@ -415,6 +419,31 @@ function DirList({
         const chs = chapters[key];
         const meta = metas[key];
         const isOpen = expanded === key;
+        // 扁平导入的作品 source 是 "local"，没有在线作品页可进
+        const detailTo =
+            d.source === FLAT_SOURCE
+                ? null
+                : `/comic/${d.source}/${encodeURIComponent(d.comicId)}`;
+        const summary = (
+            <>
+                <Cover
+                    src={d.cover ? imgSrc(d.cover, { source: d.source, comicId: d.comicId }) : ""}
+                    alt={d.title || d.comicId}
+                    className="w-12 shrink-0"
+                />
+                <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium text-foreground">
+                        {d.title || d.comicId}
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                        <Tag>{sourceTitle(d.source)}</Tag>
+                        <span>{d.chapterCount} 话</span>
+                    </div>
+                </div>
+            </>
+        );
+        const summaryClass =
+            "flex min-w-0 flex-1 items-center gap-3 rounded-md text-left transition-colors hover:bg-secondary/50";
         return (
             <div
                 key={key}
@@ -423,34 +452,37 @@ function DirList({
                     isOpen ? "border-primary/40" : "border-border",
                 )}
             >
-                <button
-                    type="button"
-                    onClick={() => void toggle(key, d)}
-                    aria-expanded={isOpen}
-                    className="flex w-full items-center gap-3 p-3.5 text-left transition-colors hover:bg-secondary/50"
-                >
-                    <Cover
-                        src={d.cover ? imgSrc(d.cover, { source: d.source, comicId: d.comicId }) : ""}
-                        alt={d.title || d.comicId}
-                        className="w-12 shrink-0"
-                    />
-                    <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium text-foreground">
-                            {d.title || d.comicId}
-                        </div>
-                        <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                            <Tag>{sourceTitle(d.source)}</Tag>
-                            <span>{d.chapterCount} 话</span>
-                        </div>
-                    </div>
-                    <motion.span
-                        animate={{ rotate: isOpen ? 180 : 0 }}
-                        transition={{ duration: 0.2, ease: EASE_OUT }}
-                        className="shrink-0 text-muted-foreground"
+                <div className="flex items-center gap-3 p-3.5">
+                    {detailTo ? (
+                        <Link to={detailTo} className={summaryClass}>
+                            {summary}
+                        </Link>
+                    ) : (
+                        <button
+                            type="button"
+                            onClick={() => void toggle(key, d)}
+                            aria-expanded={isOpen}
+                            className={summaryClass}
+                        >
+                            {summary}
+                        </button>
+                    )}
+                    <button
+                        type="button"
+                        onClick={() => void toggle(key, d)}
+                        aria-expanded={isOpen}
+                        aria-label={isOpen ? "收起章节" : "展开章节"}
+                        className="shrink-0 rounded-md p-2.5 text-muted-foreground transition-colors hover:bg-secondary/50 hover:text-foreground"
                     >
-                        <ChevronDown className="size-4" />
-                    </motion.span>
-                </button>
+                        <motion.span
+                            animate={{ rotate: isOpen ? 180 : 0 }}
+                            transition={{ duration: 0.2, ease: EASE_OUT }}
+                            className="block"
+                        >
+                            <ChevronDown className="size-4" />
+                        </motion.span>
+                    </button>
+                </div>
                 <AnimatePresence initial={false}>
                     {isOpen && (
                         <motion.div
@@ -477,7 +509,7 @@ function DirList({
                                             className="flex items-center justify-between rounded-xl px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                                         >
                                             <span className="truncate">
-                                                {meta?.chapters[idx] ?? `第 ${idx} 话`}
+                                                {chapterLabel(meta?.chapters[idx], Number(idx))}
                                             </span>
                                             <span className="shrink-0 text-xs">
                                                 {pages.length} 页

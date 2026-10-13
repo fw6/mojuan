@@ -5,6 +5,9 @@ import { comicKey, FILES, getStore } from "./store";
  * 页码在两次会话里指向同一张图（恢复与虚拟器渲染读的是同一份 measurementsCache）。 */
 export interface ProgressRecord {
     chapterIndex: number;
+    /** 该话的标题，随位置一起记下：详情页的「继续阅读」不必等章节表取到就能显示话名
+     * （话序号只是源内部的 id）。改版前记下的记录没有这个字段。 */
+    chapterTitle?: string;
     /** 话内图片下标（过滤后的章节页序，0 起）。 */
     pageIndex: number;
     /** 页内位置 0..1：长条漫一页好几屏，只记页码会跳很远。 */

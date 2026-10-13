@@ -25,12 +25,13 @@ import {
     getDownloads,
     imgSrc,
     listDownloaded,
+    readComicMeta,
     type Chapter,
     type Comic,
     type DownloadStatus,
     type DownloadedPage,
 } from "../api";
-import { filterExternalChapters } from "../lib/chapters";
+import { chapterLabel, filterExternalChapters } from "../lib/chapters";
 import { windowChrome } from "../lib/chrome";
 import { chapterDownloadStates } from "../lib/downloads";
 import { nearBottomByPx } from "../lib/scroll";
@@ -405,9 +406,9 @@ export default function Reader({ local = false }: { local?: boolean }) {
             }
             const at = record();
             const c = comicRef.current;
-            // 下载目录兜底时没有真实标题，历史 tab 保持链在线 reader（#19）
+            // 下载目录兜底时 comic 是合成的，历史 tab 保持链在线 reader（#19）
             if (at && c && !syntheticComicRef.current) {
-                void touchHistory(c, at.chapterIndex);
+                void touchHistory(c, at.chapterIndex, at.chapterTitle);
             }
         }, 250);
     }, [appendChapter, record, setChrome, wakeCursor, isMobile]);
@@ -424,11 +425,16 @@ export default function Reader({ local = false }: { local?: boolean }) {
             const dir = settings.downloadDir;
             // 下载清单：本地模式的唯一来源，也是在线阅读取不到详情时的兜底
             const listed = dir ? await listDownloaded(dir, source!, id) : {};
+            // 作品元数据里的各话标题（下载入队时写入）：下载目录的键只是源内部的话序号
+            const meta = dir
+                ? await readComicMeta(dir, source!, id).catch(() => null)
+                : null;
             if (cancelled) return;
             downloadsRef.current = listed;
             downloadDirRef.current = dir;
 
-            /** 下载目录里的章节：标题只有话序号，comic 元数据是合成的。 */
+            /** 下载目录里的章节：标题取自作品元数据，没有元数据（旧下载或用户自己挑的
+             * 文件夹）时只有话序号，comic 元数据是合成的。 */
             const fromDownloads = (): { comic: Comic; chapters: Chapter[] } => ({
                 comic: {
                     id,
@@ -448,7 +454,7 @@ export default function Reader({ local = false }: { local?: boolean }) {
                 chapters: Object.entries(listed)
                     .map(([idx]) => ({
                         index: Number(idx),
-                        title: `第 ${Number(idx)} 话`,
+                        title: chapterLabel(meta?.chapters[idx], Number(idx)),
                         // 页面地址在 appendChapter 里从下载清单取
                         pages: [] as string[],
                         external: false,
@@ -509,8 +515,11 @@ export default function Reader({ local = false }: { local?: boolean }) {
             setChapters(data.chapters);
             setReady(true);
             currentIdxRef.current = target;
-            // 下载目录里没有真实标题，历史 tab 保持链在线 reader（#19）
-            if (!synthetic) void touchHistory(data.comic, data.chapters[target]?.index ?? 0);
+            // 下载目录兜底时 comic 是合成的，历史 tab 保持链在线 reader（#19）
+            const opening = data.chapters[target];
+            if (!synthetic) {
+                void touchHistory(data.comic, opening?.index ?? 0, opening?.title ?? "");
+            }
             loadingRef.current = false;
             await appendChapter(target);
         };

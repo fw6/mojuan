@@ -9,6 +9,8 @@ const RESTORE_MAX_FRAMES = 30;
 export interface ReaderPosition {
     /** 话序号（章节列表里的 index）。 */
     chapterIndex: number;
+    /** 该话的标题（随位置一起记，供历史行与详情页显示话名）。 */
+    chapterTitle: string;
     /** 话内页码（已加载页里的下标，相对该话第一页）。 */
     pageIndex: number;
     /** 页内位置 0..1：长条漫一页好几屏，只记页码会跳很远。 */
@@ -32,7 +34,7 @@ export interface ReaderPositionDeps {
     /** 已加载的页，顺序即渲染顺序。 */
     pages: readonly { chapterIdx: number }[];
     /** 过滤后的章节列表（页里存的是它的下标）。 */
-    chapters: readonly { index: number }[];
+    chapters: readonly { index: number; title: string }[];
     /** 当前作品（进度键）。 */
     comic: { source: string; id: string } | null;
     /** 路由里的话序号：记录属于别的话（从章节列表点进另一话）时不套用。 */
@@ -79,6 +81,7 @@ export function useReaderPosition({
         if (!chapter) return null;
         return {
             chapterIndex: chapter.index,
+            chapterTitle: chapter.title,
             pageIndex: pageIdx - firstPageOf(pages, chapterIdx),
             offsetInPage: offsetWithinPage(center, sizes, pageIdx),
         };
