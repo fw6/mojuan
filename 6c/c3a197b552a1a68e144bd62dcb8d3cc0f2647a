@@ -1,0 +1,94 @@
+crates/mojuan-core/src/native/mod.rs
+  s_f13d9f65ae62f0::t_fb5b94ce08c21c 4
+apps/mojuan/src/lib/downloads.test.ts
+  s_f13d9f65ae62f0::t_0cf3ba12778673 18,20,37-40
+crates/mojuan-core/src/native/download.rs
+  s_f13d9f65ae62f0::t_684ddbb178a85b 80,82-90
+  s_f13d9f65ae62f0::t_4c72fc2ba33477 410-428
+  s_f13d9f65ae62f0::t_f741bb90ab383f 8
+  s_f13d9f65ae62f0::t_89e1c9fb63036e 235,237
+docs/agents/frontend.md
+  s_f13d9f65ae62f0::t_b4128c62656567 135-140
+  s_f13d9f65ae62f0::t_7843914f66c8e2 106-112
+apps/mojuan/src/screens/Detail.test.tsx
+  s_f13d9f65ae62f0::t_91435dface77bf 35-38,45,50
+  s_f13d9f65ae62f0::t_200b2382c0397a 94,110-116
+  s_f13d9f65ae62f0::t_1fcca82ceca5bf 117
+apps/mojuan/src/api.ts
+  s_f13d9f65ae62f0::t_b41efaa3efb7b4 30-32,37-48
+  s_f13d9f65ae62f0::t_c6974e9a2a1278 80,86-89
+  s_f13d9f65ae62f0::t_a92d1fba4b6e33 124,126-127
+  s_f13d9f65ae62f0::t_72624fc77077e9 149-150,155,157
+apps/mojuan/src/lib/downloads.ts
+  s_f13d9f65ae62f0::t_8aa3acb32adf7b 49
+  s_f13d9f65ae62f0::t_f16dec3cb47f67 10-11
+apps/mojuan/src/screens/Library.test.tsx
+  s_f13d9f65ae62f0::t_666fd3147ce57b 41,48-49
+  s_f13d9f65ae62f0::t_1862bbabeda5d7 91-92
+  s_f13d9f65ae62f0::t_fbdd00eea29416 149-156,171-173,177,182-218
+  s_f13d9f65ae62f0::t_b7962dc5969d14 14
+crates/mojuan-core/src/native/files.rs
+  s_f13d9f65ae62f0::t_1e1b44818463fb 123,126-127,131-140,150,160-161
+  s_f13d9f65ae62f0::t_cee8ba3d7a1111 7
+  s_f13d9f65ae62f0::t_fa3dac4bb98c46 202-211,229-233,241-259
+  s_f13d9f65ae62f0::t_7f3a8919df146c 82-89
+crates/mojuan-core/src/native/comic_meta.rs
+  s_f13d9f65ae62f0::t_e368760b41f728 1-117
+apps/mojuan/src/screens/Library.tsx
+  s_f13d9f65ae62f0::t_002e4e5cb8a7c9 373-374,390,398-408,416,430,432-437,439,449,479-482
+  s_f13d9f65ae62f0::t_6a0b1be33ccf81 18,20,22,33-41
+apps/mojuan/src/screens/Detail.tsx
+  s_f13d9f65ae62f0::t_0099441db68d73 15
+  s_f13d9f65ae62f0::t_5bc889b5bbae62 73,75-76,78-79,83,87,92
+  s_f13d9f65ae62f0::t_b8bcef0338a890 48-49
+  s_f13d9f65ae62f0::t_f5b98a2ed50879 66-67
+  s_f13d9f65ae62f0::t_676bd8e788c03f 149-150,170,172
+  s_f13d9f65ae62f0::t_5aaed2c7c933d2 314-318,333-335
+apps/mojuan/src/components/ui.tsx
+  s_f13d9f65ae62f0::t_8631608f3a9c29 56-57,66,69
+docs/agents/mojuan-core.md
+  s_f13d9f65ae62f0::t_3c7f33d90296b2 104-109
+apps/mojuan/src/lib/storage/comics.ts
+  s_f13d9f65ae62f0::t_231155f0f98a4e 1-21
+apps/mojuan/src-tauri/src/downloads.rs
+  s_f13d9f65ae62f0::t_aa0883158e0468 72,80,82,91,93
+  s_f13d9f65ae62f0::t_92e053c5a69807 73
+crates/mojuan-core/src/native/queue.rs
+  s_f13d9f65ae62f0::t_7436ab6fdaedd9 34,42,44-45,60,62,73,78,80,90,92
+  s_f13d9f65ae62f0::t_f88971f00b82af 485,487
+  s_f13d9f65ae62f0::t_b2284d2436a396 300,302
+  s_f13d9f65ae62f0::t_34ba881ecb188e 122,124
+apps/mojuan/src/api.test.ts
+  s_f13d9f65ae62f0::t_17c5521be0acce 19
+  s_f13d9f65ae62f0::t_27d9423f181607 247,249,260,262,277,279,289
+  s_f13d9f65ae62f0::t_63563f6b5cec51 168-169,171-179,182-188,206-231
+apps/mojuan/src-tauri/src/commands.rs
+  s_f13d9f65ae62f0::t_f0a8687b06e21e 144-158
+crates/mojuan-core/src/lib.rs
+  s_f13d9f65ae62f0::t_e965567acf8e7d 63-64,69-71
+apps/mojuan/src-tauri/src/app.rs
+  s_f13d9f65ae62f0::t_40f7c8bcc8c0b9 57
+apps/mojuan/src/screens/Downloads.tsx
+  s_f13d9f65ae62f0::t_07c6b79c4bef4e 320-321
+  s_f13d9f65ae62f0::t_6c0ac966318624 305
+  s_f13d9f65ae62f0::t_182349c5e3d4aa 204-205,214-217,242-252
+  s_f13d9f65ae62f0::t_ca2af8ff556622 367-371
+  s_f13d9f65ae62f0::t_7deb6a0447ba13 11,28
+  s_f13d9f65ae62f0::t_d4cc0d1c6d43b8 206-213
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.49-trip",
+  "base_commit_sha": "6cc3a197b552a1a68e144bd62dcb8d3cc0f2647a",
+  "prompts": {},
+  "sessions": {
+    "s_f13d9f65ae62f0": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_787eef9a-0d6b-4236-8816-9f45a1f8f1e8",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
