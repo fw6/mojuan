@@ -1,0 +1,72 @@
+apps/mojuan/src/lib/storage/favorites.test.ts
+  s_9ce32ec911a70b::t_b71e40c5050a84 7,24-31,36-38
+crates/mojuan-core/src/native/files.rs
+  s_9ce32ec911a70b::t_c2f8c94e12a730 231-267
+  s_9ce32ec911a70b::t_a0b1c7674b490b 87-92
+  s_9ce32ec911a70b::t_4d6a67a7164c2c 81-86,93-101
+apps/mojuan/src/screens/Downloads.tsx
+  s_9ce32ec911a70b::t_a0a67adabbb6e3 106-115
+  s_9ce32ec911a70b::t_cc577480f71d5a 3,9
+docs/agents/frontend.md
+  s_9ce32ec911a70b::t_98f5e60ceafcbf 173-181
+  s_9ce32ec911a70b::t_388b7364e8b5cc 87-105
+apps/mojuan/src/api.ts
+  s_9ce32ec911a70b::t_9be8e88b32c5a4 153-161
+docs/agents/mojuan-core.md
+  s_9ce32ec911a70b::t_df78719f85994b 98-103,109-111
+crates/mojuan-core/src/lib.rs
+  s_9ce32ec911a70b::t_a5934130f3ee6b 68-72
+apps/mojuan/src/lib/storage/history.ts
+  s_9ce32ec911a70b::t_02a89509fdc1cb 35-40
+apps/mojuan/src/components/beui/swipeable-list.tsx
+  s_9ce32ec911a70b::t_fcf5da60a92566 1-507
+apps/mojuan/src-tauri/src/app.rs
+  s_9ce32ec911a70b::t_ea121d15cbd07e 67
+crates/mojuan-core/src/native/download.rs
+  s_9ce32ec911a70b::t_fb4aed0095a2be 12-13
+  s_9ce32ec911a70b::t_31ee6aadbf9042 401,406
+  s_9ce32ec911a70b::t_6638cf027b8ed4 116
+  s_9ce32ec911a70b::t_bbd77d7f62930e 106-115,117-121
+  s_9ce32ec911a70b::t_c9f130c22cd807 395-400,402-405,407-434
+  s_9ce32ec911a70b::t_010b52901f15fa 139,142,146,172,175-178
+  s_9ce32ec911a70b::t_779d90702c5285 36-39
+  s_9ce32ec911a70b::t_6d557d00e2fbfa 63-64
+apps/mojuan/src/screens/Library.test.tsx
+  s_9ce32ec911a70b::t_c0d7b302d5e10f 1-118,120-134,136-161,163-175,177-201
+  s_9ce32ec911a70b::t_a77f0083aab1f0 119,135,162,176
+apps/mojuan/scripts/fetch-beui.mjs
+  s_9ce32ec911a70b::t_d64dbc7e56ad18 41
+apps/mojuan/src/lib/storage/history.test.ts
+  s_9ce32ec911a70b::t_7639ce8a03391c 7,30-40
+apps/mojuan/src/screens/Library.tsx
+  s_9ce32ec911a70b::t_3cdb7185a4ff1c 1,13,18,23-24,35-39,50-57,61-63,65-69,113-144,182-210,223-245,264-268,314-371,394-425,427-441,443-457,459-486
+  s_9ce32ec911a70b::t_2cfaf0a69665cc 58-60,64
+apps/mojuan/src/lib/storage/favorites.ts
+  s_9ce32ec911a70b::t_9d25a0a1e6654b 16-21,27
+DESIGN.md
+  s_9ce32ec911a70b::t_5c54e49cbed3ef 319-324
+apps/mojuan/src-tauri/src/downloads.rs
+  s_9ce32ec911a70b::t_c8c7ad5949a6c8 14-16
+  s_9ce32ec911a70b::t_b265f1c0eccce3 119-143
+crates/mojuan-core/src/native/queue.rs
+  s_9ce32ec911a70b::t_0567e66b173518 224,236,250-266,269
+  s_9ce32ec911a70b::t_121de97cfd5d4e 151-153,158-161,174
+  s_9ce32ec911a70b::t_6a4df26de191c6 9
+  s_9ce32ec911a70b::t_11078bca5aaa1a 422-461
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.49-trip",
+  "base_commit_sha": "4fb090a1d0cd996cf9ad52d9dee534d1715e94d3",
+  "prompts": {},
+  "sessions": {
+    "s_9ce32ec911a70b": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_748a14b1-ef79-4d0d-8719-1c0b6f2ce804",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
