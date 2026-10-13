@@ -18,6 +18,7 @@ describe("设置 settings", () => {
             downloadDir: "/mock/Downloads/mojuan",
             darkMode: false,
             autoTrim: false,
+            followUpdate: true,
             lastSource: null,
             lastCategory: {},
         });
@@ -30,9 +31,18 @@ describe("设置 settings", () => {
             downloadDir: "/mock/Downloads/mojuan",
             darkMode: true,
             autoTrim: true,
+            followUpdate: true,
             lastSource: null,
             lastCategory: {},
         });
+    });
+
+    it("书架追更开关：关掉后写入存储，重新读取仍然关闭且不影响其他设置", async () => {
+        await setSettings({ autoTrim: true });
+        await setSettings({ followUpdate: false });
+        const s = await getSettings();
+        expect(s.followUpdate).toBe(false);
+        expect(s.autoTrim).toBe(true);
     });
 
     it("rememberDiscovery 记住浏览位置，不影响其他设置", async () => {
