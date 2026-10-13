@@ -74,14 +74,25 @@ export function rebuildFollowRecord(
 }
 
 /**
- * 未读数：基线之后仍未被读到的非外链话数。没有记录、待重建、或未读数为 0 时返回 0。
- * 有进度记录时按进度就地算（读完最新一话当场归零；跳读留下的空档不计入）。
+ * 未读的话序号（升序）：基线之后、且读者当前进度之前还没读到的非外链话。
+ * 没有记录或待重建时为空；没有进度记录时就是记录里的全部序号；有进度记录时只保留
+ * 序号大于进度 chapterIndex 的（读完最新一话当场归零，跳读留下的空档不计入）。
+ */
+export function unreadIndexes(
+    record: FollowRecord | null,
+    progress: ProgressRecord | null,
+): number[] {
+    if (!record || record.needsRebuild) return [];
+    if (!progress) return [...record.newChapterIndexes];
+    return record.newChapterIndexes.filter((index) => index > progress.chapterIndex);
+}
+
+/**
+ * 未读数：基线之后仍未被读到的非外链话数。就是未读序号的个数。
  */
 export function unreadCount(
     record: FollowRecord | null,
     progress: ProgressRecord | null,
 ): number {
-    if (!record || record.needsRebuild) return 0;
-    if (!progress) return record.newChapterIndexes.length;
-    return record.newChapterIndexes.filter((index) => index > progress.chapterIndex).length;
+    return unreadIndexes(record, progress).length;
 }
