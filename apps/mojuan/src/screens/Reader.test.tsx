@@ -1,8 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, waitFor, act, cleanup, fireEvent } from "@testing-library/react";
+import {
+    render,
+    waitFor,
+    act,
+    cleanup,
+    fireEvent,
+    screen,
+    within,
+} from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import Reader from "./Reader";
-import type { Chapter, Comic } from "../api";
+import type { Chapter, Comic, DownloadTaskView } from "../api";
 import type { ProgressRecord } from "../lib/storage/progress";
 
 // S4 seam：阅读器的阅读位置。记录的是「话内第几张图 + 图内位置」，进入时按它恢复，
@@ -11,6 +19,7 @@ import type { ProgressRecord } from "../lib/storage/progress";
 vi.mock("../api", () => ({
     crawl: vi.fn(),
     crawlCached: vi.fn(),
+    getDownloads: vi.fn().mockResolvedValue([]),
     imgSrc: vi.fn((url: string) => url),
     listDownloaded: vi.fn().mockResolvedValue({}),
     setSystemBars: vi.fn().mockResolvedValue(undefined),
@@ -36,13 +45,14 @@ vi.mock("@tauri-apps/api/window", () => ({
     }),
 }));
 
-import { crawl, crawlCached, imgSrc, listDownloaded, setSystemBars } from "../api";
+import { crawl, crawlCached, getDownloads, imgSrc, listDownloaded, setSystemBars } from "../api";
 import { touchHistory } from "../lib/storage/history";
 import { getProgress, setProgress } from "../lib/storage/progress";
 import { ToastProvider } from "../components/toast";
 
 const mockedCrawl = vi.mocked(crawl);
 const mockedCrawlCached = vi.mocked(crawlCached);
+const mockedGetDownloads = vi.mocked(getDownloads);
 const mockedImgSrc = vi.mocked(imgSrc);
 const mockedListDownloaded = vi.mocked(listDownloaded);
 const mockedSetSystemBars = vi.mocked(setSystemBars);
@@ -170,6 +180,7 @@ beforeEach(() => {
     // mock 的实现不随 clearAllMocks 复位：上一个用例留下的下载清单与进度记录会漏进
     // 下一个（顺序一变就红），这里按各自的默认取值复位，用例再按需覆盖。
     mockedListDownloaded.mockResolvedValue({});
+    mockedGetDownloads.mockResolvedValue([]);
     mockedProgress.mockResolvedValue(null);
     stubCrawl();
 });
@@ -446,5 +457,126 @@ describe("移动端的全屏阅读", () => {
         sc.scrollTop += 200;
         fireEvent.scroll(sc);
         await waitFor(() => expect(chromeHidden(container)).toBe(true));
+    });
+});
+
+/* ---------- 阅读器的目录 ---------- */
+
+/** 点顶栏的目录按钮，等面板出来。 */
+async function openToc(): Promise<HTMLElement> {
+    fireEvent.click(screen.getByRole("button", { name: "目录" }));
+    return screen.findByRole("dialog", { name: "目录" });
+}
+
+/** 一条下载队列任务（只填目录面板用得到的字段）。 */
+function downloadTask(
+    chapterIndex: number,
+    status: DownloadTaskView["status"],
+): DownloadTaskView {
+    return {
+        taskId: `webtoons/webtoons-1/${chapterIndex}`,
+        source: "webtoons",
+        comicId: "webtoons-1",
+        comicTitle: "测试作品",
+        comicCover: "",
+        chapterIndex,
+        chapterTitle: `第 ${chapterIndex} 话`,
+        status,
+        done: 0,
+        total: 10,
+    };
+}
+
+/** 某一话那一行（面板里的话名与顶栏的当前话名同文，按角色限定在面板内找）。 */
+function chapterRow(dialog: HTMLElement, title: string): HTMLElement {
+    return within(dialog).getByRole("button", { name: new RegExp(title) });
+}
+
+describe("阅读器的目录", () => {
+    it("列出全部章节，当前话标成当前", async () => {
+        const { container } = renderReader();
+        await waitFor(() => expect(contentHeight(container)).toBeGreaterThan(0));
+
+        const dialog = await openToc();
+        expect(within(dialog).getByText("第 1 话")).toBeTruthy();
+        expect(within(dialog).getByText("第 2 话")).toBeTruthy();
+        expect(chapterRow(dialog, "第 1 话").getAttribute("aria-current")).toBe("true");
+        expect(chapterRow(dialog, "第 2 话").getAttribute("aria-current")).toBe(null);
+        expect(within(dialog).getByText("共 2 话")).toBeTruthy();
+    });
+
+    it("已下载的话带对勾，队列里在途的话标出状态", async () => {
+        mockedListDownloaded.mockResolvedValue({
+            "1": [{ url: "https://img/0.jpg", path: "chapter_1/0.jpg" }],
+        });
+        mockedGetDownloads.mockResolvedValue([downloadTask(2, "queued")]);
+        const { container } = renderReader();
+        await waitFor(() => expect(contentHeight(container)).toBeGreaterThan(0));
+
+        const dialog = await openToc();
+        expect(within(dialog).getByRole("img", { name: "已下载" })).toBeTruthy();
+        expect(within(dialog).getByText("排队中")).toBeTruthy();
+        expect(within(dialog).getByText("共 2 话 · 已下载 1 话")).toBeTruthy();
+    });
+
+    it("只认这部作品的队列任务（别的作品同序号的话不算）", async () => {
+        mockedGetDownloads.mockResolvedValue([
+            { ...downloadTask(2, "downloading"), source: "mangadex", comicId: "别的作品" },
+        ]);
+        const { container } = renderReader();
+        await waitFor(() => expect(contentHeight(container)).toBeGreaterThan(0));
+
+        const dialog = await openToc();
+        expect(within(dialog).queryByText("下载中")).toBe(null);
+    });
+
+    it("点另一话：从那一话重开，回到话首", async () => {
+        const { container } = renderReader();
+        await waitFor(() => expect(contentHeight(container)).toBeGreaterThan(0));
+        const sc = scroller(container);
+        stubGeometry(sc, contentHeight(container));
+        sc.scrollTop = 2000;
+
+        const dialog = await openToc();
+        fireEvent.click(chapterRow(dialog, "第 2 话"));
+
+        await waitFor(() =>
+            expect(mockedCrawl).toHaveBeenCalledWith("images", "webtoons", {
+                comicId: "webtoons-1",
+                chapterIndex: 2,
+            }),
+        );
+        expect(sc.scrollTop).toBe(0);
+    });
+
+    it("点正在读的这一话只回到话首，不重新取图", async () => {
+        const { container } = renderReader();
+        await waitFor(() => expect(contentHeight(container)).toBeGreaterThan(0));
+        const sc = scroller(container);
+        stubGeometry(sc, contentHeight(container));
+        sc.scrollTop = 2000;
+        mockedCrawl.mockClear();
+
+        const dialog = await openToc();
+        fireEvent.click(chapterRow(dialog, "第 1 话"));
+
+        expect(sc.scrollTop).toBe(0);
+        expect(mockedCrawl).not.toHaveBeenCalledWith(
+            "images",
+            expect.anything(),
+            expect.anything(),
+        );
+    });
+
+    it("没有章节时目录按钮不可用", async () => {
+        mockedCrawlCached.mockResolvedValue({
+            data: { comic: COMIC, chapters: [] },
+            fetchedAt: Date.now(),
+        } as unknown as Awaited<ReturnType<typeof crawlCached>>);
+        const { container } = renderReader();
+        await waitFor(() => expect(container.textContent).toContain("已经隐藏"));
+
+        const button = screen.getByRole("button", { name: "目录" }) as HTMLButtonElement;
+        expect(button.disabled).toBe(true);
     });
 });

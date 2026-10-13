@@ -31,6 +31,8 @@ export interface BottomSheetProps {
   className?: string;
   /** Min drag distance (px) past current snap to dismiss. */
   dismissThreshold?: number;
+  /** 配色档：`reader` 取暗房令牌（阅读器的浮层），默认走中性令牌。 */
+  tone?: "default" | "reader";
 }
 
 export function BottomSheet({
@@ -43,6 +45,7 @@ export function BottomSheet({
   children,
   className,
   dismissThreshold = 120,
+  tone = "default",
 }: BottomSheetProps) {
   const [snap, setSnap] = useState(defaultSnap);
   const [mounted, setMounted] = useState(false);
@@ -164,7 +167,10 @@ export function BottomSheet({
               // A dim scrim with a light blur. backdrop-blur is GPU-expensive and
               // re-rasterizes every frame the sheet drags over it; a small radius
               // plus more opacity keeps the glass look without the jank.
-              className="pointer-events-auto fixed inset-0 z-50 bg-background/40 backdrop-blur-sm"
+              className={cn(
+                "pointer-events-auto fixed inset-0 z-50 backdrop-blur-sm",
+                tone === "reader" ? "bg-black/60" : "bg-background/40",
+              )}
             />
           )}
         </PresenceGate>
@@ -193,7 +199,9 @@ export function BottomSheet({
               style={{ ...heightStyle, ...gate.style }}
               className={cn(
                 "pointer-events-auto fixed bottom-0 left-0 right-0 z-50 mx-auto flex max-w-2xl flex-col overflow-hidden rounded-t-3xl will-change-transform",
-                "border border-border bg-background shadow-xl",
+                tone === "reader"
+                  ? "border border-reader-border bg-reader-surface shadow-xl"
+                  : "border border-border bg-background shadow-xl",
                 className,
               )}
               role="dialog"
@@ -213,14 +221,22 @@ export function BottomSheet({
                     TOUCH_GESTURE_CONTENT_CLASS,
                   )}
                 >
-                  <div className="h-1.5 w-10 rounded-full bg-muted-foreground/40" />
+                  <div
+                    className={cn(
+                      "h-1.5 w-10 rounded-full",
+                      tone === "reader" ? "bg-reader-muted/40" : "bg-muted-foreground/40",
+                    )}
+                  />
                 </div>
                 {title || description ? (
                   <div className="mt-2 w-full">
                     {title ? (
                       <h2
                         id={titleId}
-                        className="text-sm font-semibold text-foreground"
+                        className={cn(
+                          "text-sm font-semibold",
+                          tone === "reader" ? "text-reader-foreground" : "text-foreground",
+                        )}
                       >
                         {title}
                       </h2>
@@ -228,7 +244,10 @@ export function BottomSheet({
                     {description ? (
                       <p
                         id={descriptionId}
-                        className="mt-0.5 text-sm text-muted-foreground"
+                        className={cn(
+                          "mt-0.5 text-sm",
+                          tone === "reader" ? "text-reader-muted" : "text-muted-foreground",
+                        )}
                       >
                         {description}
                       </p>

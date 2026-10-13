@@ -83,11 +83,13 @@ function transform(source) {
  * 写入前对个别文件做适配，重跑脚本不会把这些改动冲掉：
  *   - theme-toggle 用本仓库的 lib/theme（next-themes 不引入）；
  *   - tabs 的触发按钮补键盘焦点环（上游只有 outline-none）；
- *   - bottom-sheet 的可访问名改中文（界面语言为中文）。
+ *   - bottom-sheet 的可访问名改中文（界面语言为中文），并补一个 `tone` 配色档。
  */
 const PATCHES = {
     "components/motion/theme-toggle.tsx": (src) =>
         src.replace('from "next-themes"', 'from "@/lib/theme"'),
+    // tone="reader" 是阅读器的暗房配色：表面、遮罩、拖拽柄、标题、说明一律取 reader 令牌，
+    // 不混用中性令牌（DESIGN.md 的 Dark Room Rule）。默认档位的外观与上游完全一致。
     "components/motion/bottom-sheet.tsx": (src) =>
         src
             .replace('aria-label="Close bottom sheet"', 'aria-label="关闭面板"')
@@ -96,7 +98,35 @@ const PATCHES = {
                 'aria-label={title ? undefined : "面板"}',
             )
             // 面板标题按设计系统的区块标题档（14px/600）而不是上游的 16px
-            .replace("text-base font-semibold text-foreground", "text-sm font-semibold text-foreground"),
+            .replace("text-base font-semibold text-foreground", "text-sm font-semibold text-foreground")
+            .replace(
+                "  dismissThreshold?: number;\n}",
+                '  dismissThreshold?: number;\n  /** 配色档：`reader` 取暗房令牌（阅读器的浮层），默认走中性令牌。 */\n  tone?: "default" | "reader";\n}',
+            )
+            .replace(
+                "  dismissThreshold = 120,\n}: BottomSheetProps) {",
+                '  dismissThreshold = 120,\n  tone = "default",\n}: BottomSheetProps) {',
+            )
+            .replace(
+                'className="pointer-events-auto fixed inset-0 z-50 bg-background/40 backdrop-blur-sm"',
+                'className={cn(\n                "pointer-events-auto fixed inset-0 z-50 backdrop-blur-sm",\n                tone === "reader" ? "bg-black/60" : "bg-background/40",\n              )}',
+            )
+            .replace(
+                '"border border-border bg-background shadow-xl",',
+                'tone === "reader"\n                  ? "border border-reader-border bg-reader-surface shadow-xl"\n                  : "border border-border bg-background shadow-xl",',
+            )
+            .replace(
+                '<div className="h-1.5 w-10 rounded-full bg-muted-foreground/40" />',
+                '<div\n                    className={cn(\n                      "h-1.5 w-10 rounded-full",\n                      tone === "reader" ? "bg-reader-muted/40" : "bg-muted-foreground/40",\n                    )}\n                  />',
+            )
+            .replace(
+                'className="text-sm font-semibold text-foreground"',
+                'className={cn(\n                          "text-sm font-semibold",\n                          tone === "reader" ? "text-reader-foreground" : "text-foreground",\n                        )}',
+            )
+            .replace(
+                'className="mt-0.5 text-sm text-muted-foreground"',
+                'className={cn(\n                          "mt-0.5 text-sm",\n                          tone === "reader" ? "text-reader-muted" : "text-muted-foreground",\n                        )}',
+            ),
     "components/motion/tabs.tsx": (src) =>
         src
             .replace(

@@ -75,3 +75,34 @@ export function donePercent(done: number, total: number): number {
     if (total <= 0) return 0;
     return Math.max(0, Math.min(100, Math.round((done / total) * 100)));
 }
+
+/** 阅读器目录里一行话的下载状态。 */
+export type ChapterDownloadState =
+    | "none"
+    | "downloaded"
+    | "downloading"
+    | "queued"
+    | "failed";
+
+/**
+ * 每话的下载状态。队列里在途的话优先：一话的目录一有文件就被 `list_downloaded`
+ * 算作「已下载」（磁盘扫描按目录算），照磁盘标的话，正在下的那几话会显示成下完了。
+ * 磁盘是「能不能离线读」的判据，所以队列里的已完成、已取消都不显示——取消是读者
+ * 自己的动作，已完成的话磁盘清单里本来就有。
+ */
+export function chapterDownloadStates(
+    chapters: readonly { index: number }[],
+    downloaded: Record<string, unknown>,
+    tasks: Record<number, DownloadStatus>,
+): Map<number, ChapterDownloadState> {
+    const states = new Map<number, ChapterDownloadState>();
+    for (const ch of chapters) {
+        const status = tasks[ch.index];
+        if (status === "downloading" || status === "queued" || status === "failed") {
+            states.set(ch.index, status);
+        } else if (downloaded[String(ch.index)]) {
+            states.set(ch.index, "downloaded");
+        }
+    }
+    return states;
+}

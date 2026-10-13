@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { donePercent, groupDownloads } from "./downloads";
+import { chapterDownloadStates, donePercent, groupDownloads } from "./downloads";
 import type { DownloadStatus, DownloadTaskView } from "../api";
 
 const task = (
@@ -90,5 +90,44 @@ describe("donePercent（进度百分比）", () => {
         expect(donePercent(6, 44)).toBe(14);
         expect(donePercent(44, 44)).toBe(100);
         expect(donePercent(0, 0)).toBe(0);
+    });
+});
+
+describe("chapterDownloadStates（目录里的下载状态）", () => {
+    const chapters = [1, 2, 3, 4, 5, 6].map((index) => ({ index }));
+
+    it("队列里在途的话压过磁盘：正在下的那几话不显示成已下载", () => {
+        const states = chapterDownloadStates(
+            chapters,
+            { "1": [{ url: "", path: "chapter_1/0.jpg" }], "2": [{ url: "", path: "chapter_2/0.jpg" }] },
+            { 1: "downloading", 2: "queued" },
+        );
+        expect(states.get(1)).toBe("downloading");
+        expect(states.get(2)).toBe("queued");
+    });
+
+    it("队列里在途的话按状态标出，没有的落回 none", () => {
+        const states = chapterDownloadStates(chapters, {}, {
+            2: "downloading",
+            3: "queued",
+            4: "failed",
+            5: "cancelled",
+            6: "done",
+        });
+        expect(states.get(2)).toBe("downloading");
+        expect(states.get(3)).toBe("queued");
+        expect(states.get(4)).toBe("failed");
+        // 取消是读者自己的动作，完成的话磁盘清单里本来就有：都不标
+        expect(states.has(5)).toBe(false);
+        expect(states.has(6)).toBe(false);
+    });
+
+    it("下载目录里的旧话（话序号是字符串键）也认", () => {
+        const states = chapterDownloadStates([{ index: 12 }], { "12": {} }, {});
+        expect(states.get(12)).toBe("downloaded");
+    });
+
+    it("没有任何下载时状态表是空的", () => {
+        expect(chapterDownloadStates(chapters, {}, {}).size).toBe(0);
     });
 });

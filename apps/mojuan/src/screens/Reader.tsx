@@ -15,20 +15,24 @@ import {
     AlertTriangle,
     ArrowLeft,
     BookOpen,
+    List,
     Maximize,
     Minimize,
 } from "lucide-react";
 import {
     crawl,
     crawlCached,
+    getDownloads,
     imgSrc,
     listDownloaded,
     type Chapter,
     type Comic,
+    type DownloadStatus,
     type DownloadedPage,
 } from "../api";
 import { filterExternalChapters } from "../lib/chapters";
 import { windowChrome } from "../lib/chrome";
+import { chapterDownloadStates } from "../lib/downloads";
 import { nearBottomByPx } from "../lib/scroll";
 import { touchHistory } from "../lib/storage/history";
 import { getSettings } from "../lib/storage/settings";
@@ -39,6 +43,7 @@ import { useSystemBars } from "../lib/hooks/use-system-bars";
 import { useIsMobile } from "../lib/platform";
 import { tapZone } from "../lib/tap-zones";
 import { virtualizerAdapter } from "../lib/reader-virtualizer";
+import { ChapterSheet } from "../components/chapter-sheet";
 import ProxyImage from "../components/ProxyImage";
 import { useToast } from "../components/toast";
 import { Loader } from "../components/beui/loader";
@@ -113,6 +118,9 @@ export default function Reader({ local = false }: { local?: boolean }) {
     // 沉浸式阅读（移动端）：顶栏与系统栏一起收走，整屏让给漫画
     const [immersive, setImmersive] = useState(false);
     const [cursorIdle, setCursorIdle] = useState(false);
+    // 目录面板：打开时按章节序号给出各话在下载队列里的状态
+    const [tocOpen, setTocOpen] = useState(false);
+    const [downloadTasks, setDownloadTasks] = useState<Record<number, DownloadStatus>>({});
     const [ratio, setRatio] = useState(
         () => learnedRatio(source) || FALLBACK_RATIO[source ?? ""] || DEFAULT_RATIO,
     );
@@ -132,11 +140,15 @@ export default function Reader({ local = false }: { local?: boolean }) {
     const pagesRef = useRef<PageItem[]>([]);
     /** 下载目录里的章节 → 页面（已下载的话直接读它，不必联网取图）。 */
     const downloadsRef = useRef<Record<string, DownloadedPage[]>>({});
+    /** 下载目录本身（目录面板打开时按它重读磁盘清单）。 */
+    const downloadDirRef = useRef<string | null>(null);
     /** 作品元数据是否来自下载目录（那时标题只有话序号，历史不写这种条目）。 */
     const syntheticComicRef = useRef(false);
     const currentIdxRef = useRef(0);
     const loadingRef = useRef(false);
     const loadedChaptersRef = useRef<Set<number>>(new Set());
+    /** 换话代次：跳转时自增，在途的取图结果随之作废。 */
+    const generationRef = useRef(0);
     /** 至少有一张图真的加载过（跨话预取的守卫：初始级联时先别预取下一话）。 */
     const imageLoadedRef = useRef(false);
     const progressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -262,11 +274,14 @@ export default function Reader({ local = false }: { local?: boolean }) {
             if (loadingRef.current || loadedChaptersRef.current.has(chapterIdx)) return;
             const chapter = chaptersRef.current[chapterIdx];
             if (!chapter) return;
+            const generation = generationRef.current;
             loadedChaptersRef.current.add(chapterIdx);
             loadingRef.current = true;
             setLoading(true);
             try {
                 const imgs = await chapterPages(chapter);
+                // 取图期间跳过话：这一批页已经不属于当前画面，丢掉
+                if (generation !== generationRef.current) return;
                 const next = [
                     ...pagesRef.current,
                     ...imgs.map((url) => ({ chapterIdx, url })),
@@ -276,6 +291,7 @@ export default function Reader({ local = false }: { local?: boolean }) {
                 currentIdxRef.current = chapterIdx;
                 setBootFailed(false);
             } catch (err) {
+                if (generation !== generationRef.current) return;
                 loadedChaptersRef.current.delete(chapterIdx);
                 console.error(err);
                 // 首章失败：画布上还没有任何页面，只弹 toast 给不出能点的重试
@@ -285,11 +301,41 @@ export default function Reader({ local = false }: { local?: boolean }) {
                     toast.show("这一话加载失败，滚动到底部可重试", "error");
                 }
             } finally {
-                loadingRef.current = false;
-                setLoading(false);
+                if (generation === generationRef.current) {
+                    loadingRef.current = false;
+                    setLoading(false);
+                }
             }
         },
         [chapterPages, toast],
+    );
+
+    /** 从目录跳到某一话：丢掉已加载的页，从这一话第一页重新开始。
+     *  在途的预取经代次作废，不会落到新的一话上；点已经在读的这一话就回到话首。 */
+    const jumpToChapter = useCallback(
+        async (index: number) => {
+            const target = chaptersRef.current.findIndex((c) => c.index === index);
+            if (target < 0) return;
+            const container = containerRef.current;
+            if (target === currentIdxRef.current) {
+                container?.scrollTo({ top: 0 });
+                return;
+            }
+            generationRef.current += 1;
+            loadedChaptersRef.current = new Set();
+            pagesRef.current = [];
+            setPages([]);
+            loadingRef.current = false;
+            setLoading(false);
+            imageLoadedRef.current = false;
+            currentIdxRef.current = target;
+            lastTopRef.current = 0;
+            container?.scrollTo({ top: 0 });
+            // 换了内容就丢掉按页下标缓存的实测高度（默认的键就是下标）
+            virtualizer.measure();
+            await appendChapter(target);
+        },
+        [appendChapter, virtualizer],
     );
 
     /** 顶栏显隐只在值真的变化时写入 state（滚动事件里省掉无谓的重渲染）。 */
@@ -380,6 +426,7 @@ export default function Reader({ local = false }: { local?: boolean }) {
             const listed = dir ? await listDownloaded(dir, source!, id) : {};
             if (cancelled) return;
             downloadsRef.current = listed;
+            downloadDirRef.current = dir;
 
             /** 下载目录里的章节：标题只有话序号，comic 元数据是合成的。 */
             const fromDownloads = (): { comic: Comic; chapters: Chapter[] } => ({
@@ -477,6 +524,35 @@ export default function Reader({ local = false }: { local?: boolean }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [source, id, chapterIndex, local, retryKey]);
 
+    // 打开目录时重读一次下载状态：磁盘清单是「能不能离线读」的判据（在别处下完的话
+    // 这里要看得到），队列快照给出在途的那几话。队列只取一次快照——进度通道是全局
+    // 单槽（Rust State 里只存一个 Channel），阅读器订阅会把下载页的订阅顶掉。
+    useEffect(() => {
+        if (!tocOpen) return;
+        let cancelled = false;
+        void (async () => {
+            const dir = downloadDirRef.current;
+            const listed = dir ? await listDownloaded(dir, source!, id) : {};
+            if (cancelled) return;
+            downloadsRef.current = listed;
+            const tasks: Record<number, DownloadStatus> = {};
+            try {
+                for (const task of await getDownloads()) {
+                    if (task.source === source && task.comicId === id) {
+                        tasks[task.chapterIndex] = task.status;
+                    }
+                }
+            } catch (err) {
+                // 队列快照取不到只影响在途状态，磁盘清单照常给出「已下载」
+                console.error(err);
+            }
+            if (!cancelled) setDownloadTasks(tasks);
+        })().catch((err) => console.error(err));
+        return () => {
+            cancelled = true;
+        };
+    }, [tocOpen, source, id]);
+
     // 全屏（grilling #6）：隐藏窗口边框与标题栏；Esc 退出。
     // 进全屏即收起顶栏（点画面可唤回），退出全屏把顶栏交还出来。
     const toggleFullscreen = useCallback(async () => {
@@ -555,6 +631,9 @@ export default function Reader({ local = false }: { local?: boolean }) {
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if (e.key !== "Escape") return;
+            // 目录面板开着时 Escape 归它关（它自己也在 window 上听，先跑的是这里，
+            // 不挡住的话一次 Escape 会既关面板又退出阅读器）
+            if (tocOpen) return;
             if (fullscreen) {
                 void getCurrentWindow().setFullscreen(false);
                 setFullscreen(false);
@@ -565,11 +644,17 @@ export default function Reader({ local = false }: { local?: boolean }) {
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [fullscreen, navigate, setChrome]);
+    }, [fullscreen, navigate, setChrome, tocOpen]);
 
     const lastChapter = currentIdxRef.current >= chapters.length - 1;
     const currentChapter = chapters[currentIdxRef.current];
     const reserved = estimatePageHeight(columnWidth);
+    /** 目录面板里各话的下载状态（磁盘清单 + 队列快照）。 */
+    const downloadStates = chapterDownloadStates(
+        chapters,
+        downloadsRef.current,
+        downloadTasks,
+    );
     const backTo = local
         ? "/library"
         : `/comic/${source}/${encodeURIComponent(id)}`;
@@ -738,6 +823,17 @@ export default function Reader({ local = false }: { local?: boolean }) {
                 </div>
                 <button
                     type="button"
+                    aria-label="目录"
+                    aria-haspopup="dialog"
+                    aria-expanded={tocOpen}
+                    disabled={chapters.length === 0}
+                    onClick={() => setTocOpen(true)}
+                    className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-reader-muted transition-colors hover:bg-white/10 hover:text-reader-foreground disabled:pointer-events-none disabled:opacity-40"
+                >
+                    <List className="size-4" />
+                </button>
+                <button
+                    type="button"
                     aria-label={chromeFull ? "退出全屏" : "全屏"}
                     aria-pressed={chromeFull}
                     // 移动端没有窗口全屏（tao 在 Android 上是空实现），这颗按钮切的是
@@ -752,6 +848,18 @@ export default function Reader({ local = false }: { local?: boolean }) {
                     )}
                 </button>
             </header>
+
+            <ChapterSheet
+                open={tocOpen}
+                onOpenChange={setTocOpen}
+                chapters={chapters}
+                currentIndex={currentChapter?.index ?? -1}
+                states={downloadStates}
+                onSelect={(index) => {
+                    setTocOpen(false);
+                    void jumpToChapter(index);
+                }}
+            />
         </div>
     );
 }

@@ -33,6 +33,9 @@
     /* 阅读画布：图片之外的底色。阅读页是暗房，两套主题都从这里取暗底，
        页面与封面才成为画面里唯一有颜色的东西。 */
     --reader-canvas: oklch(18% 0 0);
+    /* 画布之上的表面（目录面板这类浮层）：比画布亮一档，靠色调分层。
+       再亮下去绿色对勾（success）就掉到 3:1 以下。 */
+    --reader-surface: oklch(20% 0 0);
     --reader-foreground: oklch(93% 0 0);
     --reader-muted: oklch(64% 0 0);
     --reader-border: rgb(255 255 255 / 0.1);
@@ -81,6 +84,7 @@ html[data-chrome="windows"] body {
     --ring: oklch(80% 0.18 195);
     /* 夜间阅读用纯黑，把屏幕本身隐掉 */
     --reader-canvas: #000000;
+    --reader-surface: #1c1c1c;
 }
 
 @theme inline {
@@ -110,6 +114,7 @@ html[data-chrome="windows"] body {
     --color-border-strong: var(--border-strong);
     --color-ring: var(--ring);
     --color-reader-canvas: var(--reader-canvas);
+    --color-reader-surface: var(--reader-surface);
     --color-reader-foreground: var(--reader-foreground);
     --color-reader-muted: var(--reader-muted);
     --color-reader-border: var(--reader-border);
