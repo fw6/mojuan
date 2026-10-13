@@ -1,0 +1,61 @@
+apps/mojuan/scripts/fetch-beui.mjs
+  s_9227362cb39dd5::t_1e10a710f98c74 86,91-92,101-129
+apps/mojuan/src/styles/beui.css
+  s_9227362cb39dd5::t_9af1388507950c 87
+  s_9227362cb39dd5::t_b100a16f06cd88 117
+  s_9227362cb39dd5::t_b3980a644d010d 36-38
+DESIGN.md
+  s_9227362cb39dd5::t_b0938ad1bab3c3 172
+  s_9227362cb39dd5::t_3f08600b14a9fe 300,304-308
+apps/mojuan/src/lib/downloads.test.ts
+  s_9227362cb39dd5::t_072be2e66df5c3 95-98,100-101,104,107-133
+  s_9227362cb39dd5::t_5af39d04deb049 2
+  s_9227362cb39dd5::t_4b1cdd42f4a181 99,102-103,105-106
+apps/mojuan/src/components/chapter-sheet.tsx
+  s_9227362cb39dd5::t_d923d5af10b39f 38
+  s_9227362cb39dd5::t_c07a70c118ae9d 88-107
+  s_9227362cb39dd5::t_c1b03bdd8e8e23 1-37,39-87,108-133
+apps/mojuan/src/lib/downloads.ts
+  s_9227362cb39dd5::t_5daa071457f921 88-91,103-104
+  s_9227362cb39dd5::t_4ab969e786213a 78-87,92-102,105-108
+apps/mojuan/src/screens/Reader.tsx
+  s_9227362cb39dd5::t_df2a354b6d50c0 313-340
+  s_9227362cb39dd5::t_6d7362bf6200a3 634-636,647
+  s_9227362cb39dd5::t_4445063de8d86e 429
+  s_9227362cb39dd5::t_9478dfff415665 143-144,150-151
+  s_9227362cb39dd5::t_90d8e1f23eec71 121-123
+  s_9227362cb39dd5::t_1c13f7a4b78e24 277,283-284,294,304-307
+  s_9227362cb39dd5::t_866fa4652b5534 527-555
+  s_9227362cb39dd5::t_97f76bc75f9b1c 652-657
+  s_9227362cb39dd5::t_b392ef67768756 18,25,30,35,46
+  s_9227362cb39dd5::t_939a9bddc3b2f3 826-834,851-862
+apps/mojuan/src/screens/Reader.test.tsx
+  s_9227362cb39dd5::t_f2c79d2d73c5b8 2-10,13,22
+  s_9227362cb39dd5::t_a2a23fd5ed8f02 48,55
+  s_9227362cb39dd5::t_649c05bc93f83e 462-582
+  s_9227362cb39dd5::t_24d738ab04a16b 183
+apps/mojuan/src/components/beui/bottom-sheet.tsx
+  s_9227362cb39dd5::t_08461df1e6e01c 247-250
+  s_9227362cb39dd5::t_839c9397584df3 48
+  s_9227362cb39dd5::t_3e86db9555da65 202-204
+  s_9227362cb39dd5::t_4f8811b17a0133 170-173
+  s_9227362cb39dd5::t_d81fde68f3bff5 224-229
+  s_9227362cb39dd5::t_d30fbbbeba3501 236-239
+  s_9227362cb39dd5::t_41ac2843e03950 34-35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.49-trip",
+  "base_commit_sha": "4822a04f13039d0476a8c858fec88491b98031a4",
+  "prompts": {},
+  "sessions": {
+    "s_9227362cb39dd5": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_6479e6f6-0e53-473e-9a9a-83d521dbaf86",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
