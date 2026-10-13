@@ -80,7 +80,7 @@ const COMIC: Comic = {
     lastReadTime: 0,
 };
 
-function chapter(index: number): Chapter {
+function chapter(index: number, opts: Partial<Chapter> = {}): Chapter {
     return {
         index,
         title: `第 ${index} 话`,
@@ -88,6 +88,7 @@ function chapter(index: number): Chapter {
         external: false,
         downloaded: false,
         read: false,
+        ...opts,
     };
 }
 
@@ -272,6 +273,67 @@ describe("Detail 详情页", () => {
         await waitFor(() => expect(mockedToggleFavorite).toHaveBeenCalled());
         expect(mockedSetFollow).not.toHaveBeenCalled();
     });
+
+    it("追更基线失配（待重建）时，打开详情页即以当前进度重建基线", async () => {
+        mockedFollowState.mockResolvedValue({
+            checkedAt: 1,
+            baseline: { index: 500, title: "第五百话" },
+            newChapterIndexes: [],
+            needsRebuild: true,
+        });
+        // 源改版：进度里的旧序号在新表里不存在，靠话名落到新表那一话
+        mockedProgress.mockResolvedValue({
+            chapterIndex: 500,
+            chapterTitle: "第二话",
+            pageIndex: 0,
+            offsetInPage: 0,
+            updatedAt: 1,
+        });
+        mockedCrawl.mockResolvedValue({
+            comic: COMIC,
+            chapters: [chapter(101, { title: "第一话" }), chapter(102, { title: "第二话" })],
+        });
+        renderDetail();
+
+        await waitFor(() =>
+            expect(mockedSetFollow).toHaveBeenCalledWith("webtoons", "webtoons-1", {
+                checkedAt: expect.any(Number),
+                baseline: { index: 102, title: "第二话" },
+                newChapterIndexes: [],
+                needsRebuild: false,
+            }),
+        );
+    });
+
+    it("待重建且进度在新表里也落不到时，基线落到最后一话（不显示积压）", async () => {
+        mockedFollowState.mockResolvedValue({
+            checkedAt: 1,
+            baseline: { index: 500, title: "第五百话" },
+            newChapterIndexes: [],
+            needsRebuild: true,
+        });
+        mockedProgress.mockResolvedValue({
+            chapterIndex: 500,
+            chapterTitle: "第五百话",
+            pageIndex: 0,
+            offsetInPage: 0,
+            updatedAt: 1,
+        });
+        mockedCrawl.mockResolvedValue({
+            comic: COMIC,
+            chapters: [chapter(1), chapter(2), chapter(3)],
+        });
+        renderDetail();
+
+        await waitFor(() =>
+            expect(mockedSetFollow).toHaveBeenCalledWith("webtoons", "webtoons-1", {
+                checkedAt: expect.any(Number),
+                baseline: { index: 3, title: "第 3 话" },
+                newChapterIndexes: [],
+                needsRebuild: false,
+            }),
+        );
+    });
 });
 
 describe("Detail 未读标记", () => {
@@ -341,7 +403,7 @@ describe("Detail 未读标记", () => {
         expect(screen.queryByText("新")).toBeNull();
     });
 
-    it("基线待重建时不显示未读标记", async () => {
+    it("基线待重建时先按当前进度重建，再标出基线之后的未读", async () => {
         mockedCrawl.mockResolvedValue({
             comic: COMIC,
             chapters: [chapter(1), chapter(2), chapter(3)],
@@ -354,10 +416,12 @@ describe("Detail 未读标记", () => {
             updatedAt: 1,
         });
         renderDetail();
-        expect(await screen.findByText(/继续阅读/)).toBeTruthy();
 
-        expect(screen.queryAllByRole("img", { name: "未读" })).toHaveLength(0);
-        expect(screen.queryByText("新")).toBeNull();
+        // 重建后基线落到进度里的第 1 话，未读就是它之后的第 2、3 话
+        expect(await screen.findAllByRole("img", { name: "未读" })).toHaveLength(2);
+        expect(
+            within(screen.getByRole("link", { name: /第 3 话/ })).getByText("新"),
+        ).toBeTruthy();
     });
 
     it("刚收藏、基线取自收藏时刻：收藏之后还没有新增时不标未读", async () => {

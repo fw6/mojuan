@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
     locateBaseline,
     nextFollowRecord,
+    rebuildFollowRecord,
     unreadCount,
     unreadIndexes,
 } from "./follow";
@@ -23,8 +24,8 @@ function chapter(index: number, opts: Partial<Chapter> = {}): Chapter {
     };
 }
 
-function progress(chapterIndex: number): ProgressRecord {
-    return { chapterIndex, pageIndex: 0, offsetInPage: 0, updatedAt: 0 };
+function progress(chapterIndex: number, chapterTitle?: string): ProgressRecord {
+    return { chapterIndex, chapterTitle, pageIndex: 0, offsetInPage: 0, updatedAt: 0 };
 }
 
 function record(partial: Partial<FollowRecord>): FollowRecord {
@@ -150,5 +151,79 @@ describe("unreadCount（未读数判定）", () => {
         const rec = record({ newChapterIndexes: indexes });
         expect(unreadCount(rec, progress(100))).toBe(0);
         expect(unreadCount(rec, progress(50))).toBe(50);
+    });
+});
+
+describe("rebuildFollowRecord（详情页重建基线）", () => {
+    it("进度在新章节表里定位得到时，基线落到该话并带上它的话名", () => {
+        const chapters = [
+            chapter(10, { title: "甲" }),
+            chapter(20, { title: "乙" }),
+            chapter(30, { title: "丙" }),
+        ];
+        const out = rebuildFollowRecord(chapters, progress(20, "乙"), record({ needsRebuild: true }), 777);
+        expect(out).toEqual({
+            checkedAt: 777,
+            baseline: { index: 20, title: "乙" },
+            newChapterIndexes: [30],
+            needsRebuild: false,
+        });
+    });
+
+    it("chapterIndex 落不到时按进度里的 chapterTitle 落到新表那一话", () => {
+        const chapters = [
+            chapter(101, { title: "第一话" }),
+            chapter(102, { title: "第二话" }),
+            chapter(103, { title: "第三话" }),
+        ];
+        const out = rebuildFollowRecord(chapters, progress(7, "第二话"), record({ needsRebuild: true }), 0);
+        expect(out.baseline).toEqual({ index: 102, title: "第二话" });
+        expect(out.newChapterIndexes).toEqual([103]);
+        expect(out.needsRebuild).toBe(false);
+    });
+
+    it("进度都落不到时基线落到最后一话，读者视为已追平（不显示积压）", () => {
+        const chapters = [chapter(101), chapter(102), chapter(103)];
+        const prog = progress(7, "不存在的话");
+        const out = rebuildFollowRecord(chapters, prog, record({ needsRebuild: true }), 0);
+        expect(out.baseline).toEqual({ index: 103, title: "第 103 话" });
+        expect(out.newChapterIndexes).toEqual([]);
+        expect(out.needsRebuild).toBe(false);
+        expect(unreadCount(out, prog)).toBe(0);
+    });
+
+    it("没有进度记录时用记录里原有的基线重建", () => {
+        const chapters = [chapter(1, { title: "甲" }), chapter(2, { title: "乙" })];
+        const stale = record({ needsRebuild: true, baseline: { index: 9, title: "乙" } });
+        const out = rebuildFollowRecord(chapters, null, stale, 5);
+        expect(out.baseline).toEqual({ index: 2, title: "乙" });
+        expect(out.needsRebuild).toBe(false);
+    });
+
+    it("落到最后一话时跳过外链章节", () => {
+        const chapters = [chapter(1), chapter(2, { external: true })];
+        const out = rebuildFollowRecord(chapters, progress(99, "不存在"), record({ needsRebuild: true }), 0);
+        expect(out.baseline).toEqual({ index: 1, title: "第 1 话" });
+    });
+
+    it("新章节表里没有可作基线的非外链话时保持待重建", () => {
+        const chapters = [chapter(2, { external: true })];
+        const stale = record({ needsRebuild: true, baseline: { index: 99 } });
+        expect(rebuildFollowRecord(chapters, null, stale, 0)).toBe(stale);
+    });
+});
+
+describe("基线失配的积压回落（源改版）", () => {
+    it("旧序号远高于重新编排的新表：重建前不显示角标，重建后也不出现积压", () => {
+        // 旧进度记的是第 500 话；源改版后新表只有 4 话，序号重新编排
+        const chapters = [chapter(1), chapter(2), chapter(3), chapter(4)];
+        const prog = progress(500, "第五百话");
+        const stale = record({ needsRebuild: true, baseline: { index: 500, title: "第五百话" } });
+        expect(unreadCount(stale, prog)).toBe(0);
+
+        const rebuilt = rebuildFollowRecord(chapters, prog, stale, 0);
+        expect(rebuilt.needsRebuild).toBe(false);
+        expect(rebuilt.baseline).toEqual({ index: 4, title: "第 4 话" });
+        expect(unreadCount(rebuilt, prog)).toBe(0);
     });
 });

@@ -12,7 +12,7 @@ import {
 } from "../api";
 import { useCrawl } from "../lib/hooks/use-crawl";
 import { chapterLabel, filterExternalChapters } from "../lib/chapters";
-import { unreadIndexes } from "../lib/follow";
+import { rebuildFollowRecord, unreadIndexes } from "../lib/follow";
 import { getKnownComic } from "../lib/storage/comics";
 import { isFavorite, toggleFavorite } from "../lib/storage/favorites";
 import { getFollowState, setFollowState, type FollowRecord } from "../lib/storage/follow";
@@ -48,9 +48,9 @@ export default function Detail() {
     const [favorite, setFavorite] = useState(false);
     // 阅读进度记着的那一话：话序号用来拼跳转地址，话名用来显示（进度里没记话名时从章节表取）
     const [resume, setResume] = useState<{ index: number; title: string } | null>(null);
-    // 追更状态与阅读进度：据此标出基线之后、进度之前还没读到的未读话
-    const [follow, setFollow] = useState<FollowRecord | null>(null);
-    const [progress, setProgress] = useState<ProgressRecord | null>(null);
+    // 追更状态与阅读进度：待重建时在新章节表上重建基线；据此标出基线之后、进度之前的未读话
+    const [followRecord, setFollowRecord] = useState<FollowRecord | null>(null);
+    const [progressRecord, setProgressRecord] = useState<ProgressRecord | null>(null);
     // 书架（收藏 / 历史）里记着的作品信息：首屏先用它渲染，抓取结果到了再覆盖
     const [known, setKnown] = useState<Comic | null>(null);
     // 下载（多选）：磁盘上已有的章节 + 用户勾选 + 提交进度
@@ -82,8 +82,9 @@ export default function Detail() {
     const chaptersReady = detail.data !== null;
 
     // 未读的话：基线之后、进度之前还没读到的非外链话。最新一话（序号最大的一话）
-    // 额外加「新」的强调；追更状态缺失或待重建时未读集为空，页面不标任何东西。
-    const unread = unreadIndexes(follow, progress);
+    // 额外加「新」的强调。追更状态缺失时未读集为空，页面不标任何东西；待重建时先由
+    // 下面的 effect 在新章节表上重建基线，再按重建后的基线标出未读。
+    const unread = unreadIndexes(followRecord, progressRecord);
     const unreadSet = new Set(unread);
     const newestUnread = unread.length > 0 ? unread[unread.length - 1] : null;
 
@@ -92,22 +93,22 @@ export default function Detail() {
     useEffect(() => {
         let cancelled = false;
         void (async () => {
-            const [fav, prog, followState, settings, saved] = await Promise.all([
+            const [fav, prog, settings, saved, follow] = await Promise.all([
                 isFavorite(source!, id),
                 getProgress(source!, id),
-                getFollowState(source!, id),
                 getSettings(),
                 getKnownComic(source!, id),
+                getFollowState(source!, id),
             ]);
             if (cancelled) return;
             setFavorite(fav);
-            setProgress(prog);
-            setFollow(followState);
             setResume(
                 prog
                     ? { index: prog.chapterIndex, title: prog.chapterTitle ?? "" }
                     : null,
             );
+            setFollowRecord(follow);
+            setProgressRecord(prog);
             setKnown(saved);
             setDownloadDir(settings.downloadDir);
             setSelecting(false);
@@ -127,6 +128,16 @@ export default function Detail() {
             cancelled = true;
         };
     }, [source, id]);
+
+    // 追更基线失配（源改版或删话）时：读者打开详情页即以当前进度在新章节表上重建基线，
+    // 之后书架角标恢复正常。章节表取到前不重建。
+    useEffect(() => {
+        if (!chaptersReady || !followRecord?.needsRebuild) return;
+        const rebuilt = rebuildFollowRecord(chapters, progressRecord, followRecord, Date.now());
+        if (rebuilt === followRecord) return;
+        setFollowRecord(rebuilt);
+        void setFollowState(source!, id, rebuilt);
+    }, [source, id, chaptersReady, chapters, followRecord, progressRecord]);
 
     async function onToggleFavorite() {
         if (!comic) return;
