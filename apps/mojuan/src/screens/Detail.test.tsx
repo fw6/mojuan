@@ -25,6 +25,7 @@ vi.mock("../lib/storage/favorites", () => ({
 }));
 
 vi.mock("../lib/storage/follow", () => ({
+    getFollowState: vi.fn().mockResolvedValue(null),
     setFollowState: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -48,7 +49,7 @@ vi.mock("../lib/storage/sources", () => ({
 import { crawl, crawlCached } from "../api";
 import { getKnownComic } from "../lib/storage/comics";
 import { toggleFavorite } from "../lib/storage/favorites";
-import { setFollowState } from "../lib/storage/follow";
+import { getFollowState, setFollowState } from "../lib/storage/follow";
 import { getProgress } from "../lib/storage/progress";
 import { ToastProvider } from "../components/toast";
 
@@ -56,6 +57,7 @@ const mockedCrawl = vi.mocked(crawl);
 const mockedCached = vi.mocked(crawlCached);
 const mockedKnown = vi.mocked(getKnownComic);
 const mockedToggleFavorite = vi.mocked(toggleFavorite);
+const mockedGetFollow = vi.mocked(getFollowState);
 const mockedSetFollow = vi.mocked(setFollowState);
 const mockedProgress = vi.mocked(getProgress);
 
@@ -75,7 +77,7 @@ const COMIC: Comic = {
     lastReadTime: 0,
 };
 
-function chapter(index: number): Chapter {
+function chapter(index: number, opts: Partial<Chapter> = {}): Chapter {
     return {
         index,
         title: `第 ${index} 话`,
@@ -83,6 +85,7 @@ function chapter(index: number): Chapter {
         external: false,
         downloaded: false,
         read: false,
+        ...opts,
     };
 }
 
@@ -103,6 +106,7 @@ beforeEach(() => {
     mockedCached.mockResolvedValue(null);
     mockedKnown.mockResolvedValue(null);
     mockedProgress.mockResolvedValue(null);
+    mockedGetFollow.mockResolvedValue(null);
     mockedToggleFavorite.mockResolvedValue(false);
     mockedSetFollow.mockResolvedValue(undefined);
     mockedCrawl.mockResolvedValue({ comic: COMIC, chapters: [chapter(1)] });
@@ -240,5 +244,66 @@ describe("Detail 详情页", () => {
 
         await waitFor(() => expect(mockedToggleFavorite).toHaveBeenCalled());
         expect(mockedSetFollow).not.toHaveBeenCalled();
+    });
+
+    it("追更基线失配（待重建）时，打开详情页即以当前进度重建基线", async () => {
+        mockedGetFollow.mockResolvedValue({
+            checkedAt: 1,
+            baseline: { index: 500, title: "第五百话" },
+            newChapterIndexes: [],
+            needsRebuild: true,
+        });
+        // 源改版：进度里的旧序号在新表里不存在，靠话名落到新表那一话
+        mockedProgress.mockResolvedValue({
+            chapterIndex: 500,
+            chapterTitle: "第二话",
+            pageIndex: 0,
+            offsetInPage: 0,
+            updatedAt: 1,
+        });
+        mockedCrawl.mockResolvedValue({
+            comic: COMIC,
+            chapters: [chapter(101, { title: "第一话" }), chapter(102, { title: "第二话" })],
+        });
+        renderDetail();
+
+        await waitFor(() =>
+            expect(mockedSetFollow).toHaveBeenCalledWith("webtoons", "webtoons-1", {
+                checkedAt: expect.any(Number),
+                baseline: { index: 102, title: "第二话" },
+                newChapterIndexes: [],
+                needsRebuild: false,
+            }),
+        );
+    });
+
+    it("待重建且进度在新表里也落不到时，基线落到最后一话（不显示积压）", async () => {
+        mockedGetFollow.mockResolvedValue({
+            checkedAt: 1,
+            baseline: { index: 500, title: "第五百话" },
+            newChapterIndexes: [],
+            needsRebuild: true,
+        });
+        mockedProgress.mockResolvedValue({
+            chapterIndex: 500,
+            chapterTitle: "第五百话",
+            pageIndex: 0,
+            offsetInPage: 0,
+            updatedAt: 1,
+        });
+        mockedCrawl.mockResolvedValue({
+            comic: COMIC,
+            chapters: [chapter(1), chapter(2), chapter(3)],
+        });
+        renderDetail();
+
+        await waitFor(() =>
+            expect(mockedSetFollow).toHaveBeenCalledWith("webtoons", "webtoons-1", {
+                checkedAt: expect.any(Number),
+                baseline: { index: 3, title: "第 3 话" },
+                newChapterIndexes: [],
+                needsRebuild: false,
+            }),
+        );
     });
 });

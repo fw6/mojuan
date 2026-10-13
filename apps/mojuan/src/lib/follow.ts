@@ -40,6 +40,40 @@ export function nextFollowRecord(
 }
 
 /**
+ * 重建后的基线：位置在新表里落得到就用那一话（带上它的话名），落不到就用最后一话。
+ * 新表里没有可作基线的非外链话时返回 null。
+ */
+function rebuildBaseline(chapters: Chapter[], position: FollowBaseline): FollowBaseline | null {
+    const resolved = locateBaseline(chapters, position);
+    if (resolved !== null) {
+        const hit = chapters.find((c) => c.index === resolved)!;
+        return { index: hit.index, title: hit.title };
+    }
+    const table = filterExternalChapters(chapters);
+    const last = table[table.length - 1];
+    return last ? { index: last.index, title: last.title } : null;
+}
+
+/**
+ * 重建基线：把读者当前的位置重新落到新章节表上；都落不到就落到最后一话（视为已追平）。
+ * 有进度记录时用进度里的位置，没有时用记录里原有的基线；新基线之后的未读数一并算出。
+ * 新章节表里没有可作基线的非外链话时返回原记录（保持待重建）。
+ */
+export function rebuildFollowRecord(
+    chapters: Chapter[],
+    progress: ProgressRecord | null,
+    record: FollowRecord,
+    now: number,
+): FollowRecord {
+    const position: FollowBaseline = progress
+        ? { index: progress.chapterIndex, title: progress.chapterTitle }
+        : record.baseline;
+    const baseline = rebuildBaseline(chapters, position);
+    if (!baseline) return record;
+    return nextFollowRecord(chapters, baseline, now);
+}
+
+/**
  * 未读数：基线之后仍未被读到的非外链话数。没有记录、待重建、或未读数为 0 时返回 0。
  * 有进度记录时按进度就地算（读完最新一话当场归零；跳读留下的空档不计入）。
  */
