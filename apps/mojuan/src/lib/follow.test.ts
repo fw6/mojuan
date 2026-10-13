@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+    lastChapterBaseline,
     locateBaseline,
     nextFollowRecord,
     rebuildFollowRecord,
@@ -37,6 +38,21 @@ function record(partial: Partial<FollowRecord>): FollowRecord {
         ...partial,
     };
 }
+
+describe("lastChapterBaseline（没有进度记录时的追更基线）", () => {
+    it("取章节表最后一话（外链章节不算，与未读数的口径一致）", () => {
+        const chapters = [chapter(1), chapter(2), chapter(3, { external: true })];
+        expect(lastChapterBaseline(chapters)).toEqual({ index: 2, title: "第 2 话" });
+    });
+
+    it("全是外链章节时返回 null（没有可作基线的非外链话）", () => {
+        expect(lastChapterBaseline([chapter(1, { external: true })])).toBeNull();
+    });
+
+    it("空章节表返回 null", () => {
+        expect(lastChapterBaseline([])).toBeNull();
+    });
+});
 
 describe("locateBaseline（在章节表里定位基线）", () => {
     it("按 chapterIndex 命中，返回该话的序号", () => {

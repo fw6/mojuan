@@ -12,7 +12,7 @@ import {
 } from "../api";
 import { useCrawl } from "../lib/hooks/use-crawl";
 import { chapterLabel, filterExternalChapters } from "../lib/chapters";
-import { rebuildFollowRecord, unreadIndexes } from "../lib/follow";
+import { lastChapterBaseline, rebuildFollowRecord, unreadIndexes } from "../lib/follow";
 import { getKnownComic } from "../lib/storage/comics";
 import { isFavorite, toggleFavorite } from "../lib/storage/favorites";
 import { getFollowState, setFollowState, type FollowRecord } from "../lib/storage/follow";
@@ -147,12 +147,9 @@ export default function Detail() {
         // 收藏时落下追更基线：有进度随进度走，没有进度取章节表最后一话（刚收藏不显示角标）。
         // 读持久化的进度，不用渲染态里的 resume（可能是别的作品的旧值）。
         const progress = await getProgress(source!, id);
-        const last = chapters[chapters.length - 1];
         const baseline = progress
             ? { index: progress.chapterIndex, title: progress.chapterTitle }
-            : last
-              ? { index: last.index, title: last.title }
-              : null;
+            : lastChapterBaseline(chapters);
         // 章节表还没取到（或只有外链章节）时没有基线可落，留给下一次检查按最后一话兜底
         if (!baseline) return;
         await setFollowState(source!, id, {
@@ -505,11 +502,11 @@ function ChapterTile({
                 <span
                     role="img"
                     aria-label="未读"
-                    className="size-1.5 shrink-0 rounded-full bg-primary"
+                    className="size-1.5 shrink-0 rounded-full bg-accent"
                 />
             )}
             <span className="min-w-0 flex-1 truncate">{ch.title}</span>
-            {isNew && <Tag tone="primary">新</Tag>}
+            {isNew && <Tag tone="accent">新</Tag>}
             {state === "downloaded" && (
                 <Check
                     className="size-3.5 shrink-0 text-success"

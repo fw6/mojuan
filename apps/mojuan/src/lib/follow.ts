@@ -40,6 +40,16 @@ export function nextFollowRecord(
 }
 
 /**
+ * 没有进度记录时的追更基线：章节表最后一话（外链章节不算，与未读数的口径一致）。
+ * 章节表里没有可作基线的非外链话时返回 null。
+ */
+export function lastChapterBaseline(chapters: Chapter[]): FollowBaseline | null {
+    const table = filterExternalChapters(chapters);
+    const last = table[table.length - 1];
+    return last ? { index: last.index, title: last.title } : null;
+}
+
+/**
  * 重建后的基线：位置在新表里落得到就用那一话（带上它的话名），落不到就用最后一话。
  * 新表里没有可作基线的非外链话时返回 null。
  */
@@ -49,9 +59,7 @@ function rebuildBaseline(chapters: Chapter[], position: FollowBaseline): FollowB
         const hit = chapters.find((c) => c.index === resolved)!;
         return { index: hit.index, title: hit.title };
     }
-    const table = filterExternalChapters(chapters);
-    const last = table[table.length - 1];
-    return last ? { index: last.index, title: last.title } : null;
+    return lastChapterBaseline(chapters);
 }
 
 /**
