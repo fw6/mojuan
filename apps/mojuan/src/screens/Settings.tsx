@@ -178,6 +178,11 @@ export default function Settings() {
         setSettingsState((s) => (s ? { ...s, autoTrim: trim } : s));
     }
 
+    async function toggleFollow(follow: boolean) {
+        await setSettings({ followUpdate: follow });
+        setSettingsState((s) => (s ? { ...s, followUpdate: follow } : s));
+    }
+
     // ---------- 源管理（ADR-0002：源文档由源仓库分发，也可手动导入） ----------
 
     /** 拉源仓库索引（目录与更新共用一份）。 */
@@ -618,6 +623,13 @@ export default function Settings() {
                             checked={settings.autoTrim}
                             onCheckedChange={(v) => void toggleTrim(v)}
                             ariaLabel="自动裁边"
+                        />
+                    </SettingRow>
+                    <SettingRow label="书架追更" hint="进入书架时自动检查收藏作品有没有新话">
+                        <Switch
+                            checked={settings.followUpdate}
+                            onCheckedChange={(v) => void toggleFollow(v)}
+                            ariaLabel="书架追更"
                         />
                     </SettingRow>
                 </Panel>

@@ -18,6 +18,7 @@ describe("设置 settings", () => {
             downloadDir: "/mock/Downloads/mojuan",
             darkMode: false,
             autoTrim: false,
+            followUpdate: true,
             lastSource: null,
             lastCategory: {},
             followCheckedAt: null,
@@ -31,6 +32,7 @@ describe("设置 settings", () => {
             downloadDir: "/mock/Downloads/mojuan",
             darkMode: true,
             autoTrim: true,
+            followUpdate: true,
             lastSource: null,
             lastCategory: {},
             followCheckedAt: null,
@@ -40,6 +42,14 @@ describe("设置 settings", () => {
     it("追更的最近检查时刻可读可写，默认 null", async () => {
         await setSettings({ followCheckedAt: 1234 });
         await expect(getSettings()).resolves.toMatchObject({ followCheckedAt: 1234 });
+    });
+
+    it("书架追更开关：关掉后写入存储，重新读取仍然关闭且不影响其他设置", async () => {
+        await setSettings({ autoTrim: true });
+        await setSettings({ followUpdate: false });
+        const s = await getSettings();
+        expect(s.followUpdate).toBe(false);
+        expect(s.autoTrim).toBe(true);
     });
 
     it("rememberDiscovery 记住浏览位置，不影响其他设置", async () => {

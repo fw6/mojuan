@@ -1,8 +1,53 @@
-import { describe, it, expect, vi } from "vitest";
-import { runFollowCheck, type FollowCheckInput } from "./follow-check";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// 生产入口 runFollowCheckNow 走真实依赖：mock 掉取源与三处存储域，注入替身观察是否读源。
+vi.mock("../api", () => ({
+    crawl: vi.fn(),
+}));
+vi.mock("./storage/settings", () => ({
+    getSettings: vi.fn(),
+    setSettings: vi.fn(),
+}));
+vi.mock("./storage/follow", () => ({
+    getFollowState: vi.fn(),
+    setFollowState: vi.fn(),
+}));
+vi.mock("./storage/progress", () => ({
+    getProgress: vi.fn(),
+}));
+vi.mock("./storage/sources", () => ({
+    whenSourcesReady: vi.fn(),
+}));
+
+import { runFollowCheck, runFollowCheckNow, type FollowCheckInput } from "./follow-check";
+import { crawl } from "../api";
+import { getSettings, type Settings } from "./storage/settings";
+import { getFollowState, setFollowState } from "./storage/follow";
+import { getProgress } from "./storage/progress";
+import { whenSourcesReady } from "./storage/sources";
 import type { Chapter, Comic } from "../api";
 import type { FollowRecord } from "./storage/follow";
 import type { ProgressRecord } from "./storage/progress";
+
+const mockedCrawl = vi.mocked(crawl);
+const mockedSettings = vi.mocked(getSettings);
+const mockedFollowState = vi.mocked(getFollowState);
+const mockedSetFollowState = vi.mocked(setFollowState);
+const mockedProgress = vi.mocked(getProgress);
+const mockedReady = vi.mocked(whenSourcesReady);
+
+function settings(over: Partial<Settings> = {}): Settings {
+    return {
+        downloadDir: null,
+        darkMode: false,
+        autoTrim: false,
+        followUpdate: true,
+        lastSource: null,
+        lastCategory: {},
+        followCheckedAt: null,
+        ...over,
+    };
+}
 
 // 检查编排：注入取详情 / 读进度 / 读状态的替身，验证请求预算（节流、排序、上限、并发）
 // 与失败清单的产出。
@@ -305,5 +350,39 @@ describe("runFollowCheck（请求预算）", () => {
         const result = await runFollowCheck(input);
         expect(result.updated.map((u) => u.comicId)).toEqual(["c", "a"]);
         expect(result.failures.map((f) => f.comicId)).toEqual(["b"]);
+    });
+});
+
+describe("runFollowCheckNow（生产入口：书架追更开关）", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockedSettings.mockResolvedValue(settings());
+        mockedCrawl.mockResolvedValue({ comic: comic("c1"), chapters: [chapter(1)] });
+        mockedProgress.mockResolvedValue(null);
+        mockedFollowState.mockResolvedValue(null);
+        mockedSetFollowState.mockResolvedValue(undefined);
+        mockedReady.mockResolvedValue(undefined);
+    });
+
+    it("书架追更关闭时自动检查直接返回空结果，一次也不读源", async () => {
+        mockedSettings.mockResolvedValue(settings({ followUpdate: false }));
+        const result = await runFollowCheckNow([comic("c1")]);
+        expect(result).toEqual({ updated: [], failures: [] });
+        expect(mockedCrawl).not.toHaveBeenCalled();
+        expect(mockedSetFollowState).not.toHaveBeenCalled();
+    });
+
+    it("手动刷新不受开关限制，开关关闭也照常读源", async () => {
+        mockedSettings.mockResolvedValue(settings({ followUpdate: false }));
+        const result = await runFollowCheckNow([comic("c1")], { manual: true });
+        expect(mockedCrawl).toHaveBeenCalledWith("detail", "mangadex", { comicId: "c1" });
+        expect(result.updated.map((u) => u.comicId)).toEqual(["c1"]);
+    });
+
+    it("开关开启时自动检查照常读源并写入状态", async () => {
+        const result = await runFollowCheckNow([comic("c1")]);
+        expect(mockedCrawl).toHaveBeenCalledTimes(1);
+        expect(result.updated).toHaveLength(1);
+        expect(mockedSetFollowState).toHaveBeenCalledTimes(1);
     });
 });

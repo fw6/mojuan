@@ -162,21 +162,26 @@ export async function runFollowCheck(input: FollowCheckInput): Promise<FollowChe
 }
 
 export interface FollowCheckRunOptions {
-    /** 手动刷新：不受节流限制（#37 的「书架追更」开关也照此放行）。 */
+    /** 手动刷新：不受节流限制，也不受「书架追更」开关限制。 */
     manual?: boolean;
 }
 
 /** 生产用的检查：取详情走 crawl（不读结果缓存，总是拉最新），结果写入追更状态域。
- * 自动路径读 settings 里的上次检查时刻做节流，跑完把时刻推到现在；手动路径不受节流限制。 */
+ * 自动路径受「书架追更」开关与 6 小时节流约束，跑完把上次检查时刻推到现在；手动路径都不受限。 */
 export async function runFollowCheckNow(
     favorites: Comic[],
     options?: FollowCheckRunOptions,
 ): Promise<FollowCheckResult> {
+    const manual = options?.manual ?? false;
+    // 自动检查受「书架追更」开关与上次检查时刻两道门约束；手动刷新两道门都不走
+    const settings = manual ? null : await getSettings();
+    if (settings && !settings.followUpdate) {
+        return { updated: [], failures: [] };
+    }
     // 源注册表就绪前 crawl 会返回空结果：等同步单例完成，免得首屏进书架全判成失败
     await whenSourcesReady();
-    const manual = options?.manual ?? false;
     const now = Date.now();
-    const lastCheckedAt = manual ? null : ((await getSettings()).followCheckedAt ?? null);
+    const lastCheckedAt = manual ? null : (settings?.followCheckedAt ?? null);
 
     const result = await runFollowCheck({
         favorites,
