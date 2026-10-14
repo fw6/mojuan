@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent, cleanup } from "@testing-library/re
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import Library from "./Library";
 import { ToastProvider } from "../components/toast";
+import { PageActiveContext } from "../lib/page-active";
 import type { Comic, LocalComic } from "../api";
 
 // S1 seam：书架页。mock 存储域与 api 层，验证三种列表的删除接线，
@@ -20,6 +21,19 @@ vi.mock("../api", () => ({
 vi.mock("../lib/storage/favorites", () => ({
     getFavorites: vi.fn(),
     removeFavorite: vi.fn(),
+}));
+
+vi.mock("../lib/storage/follow", () => ({
+    getFollowStates: vi.fn(),
+    removeFollowState: vi.fn(),
+}));
+
+vi.mock("../lib/storage/progress", () => ({
+    getProgressAll: vi.fn(),
+}));
+
+vi.mock("../lib/follow-check", () => ({
+    runFollowCheckNow: vi.fn(),
 }));
 
 vi.mock("../lib/storage/history", () => ({
@@ -45,6 +59,9 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 
 import { scanLocal, deleteDownloaded, listDownloaded, readComicMeta } from "../api";
 import { getFavorites, removeFavorite } from "../lib/storage/favorites";
+import { getFollowStates, removeFollowState } from "../lib/storage/follow";
+import { getProgressAll } from "../lib/storage/progress";
+import { runFollowCheckNow } from "../lib/follow-check";
 import { getHistory, removeHistory } from "../lib/storage/history";
 import { getSettings } from "../lib/storage/settings";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -55,6 +72,10 @@ const mockedListDownloaded = vi.mocked(listDownloaded);
 const mockedReadComicMeta = vi.mocked(readComicMeta);
 const mockedFavorites = vi.mocked(getFavorites);
 const mockedRemoveFavorite = vi.mocked(removeFavorite);
+const mockedFollowStates = vi.mocked(getFollowStates);
+const mockedRemoveFollowState = vi.mocked(removeFollowState);
+const mockedProgressAll = vi.mocked(getProgressAll);
+const mockedRunCheck = vi.mocked(runFollowCheckNow);
 const mockedHistory = vi.mocked(getHistory);
 const mockedRemoveHistory = vi.mocked(removeHistory);
 const mockedSettings = vi.mocked(getSettings);
@@ -94,6 +115,10 @@ function renderLibrary() {
 beforeEach(() => {
     vi.clearAllMocks();
     mockedFavorites.mockResolvedValue([]);
+    mockedFollowStates.mockResolvedValue({});
+    mockedProgressAll.mockResolvedValue({});
+    mockedRunCheck.mockResolvedValue({ updated: [], failures: [] });
+    mockedRemoveFollowState.mockResolvedValue(undefined);
     mockedScan.mockResolvedValue([]);
     mockedListDownloaded.mockResolvedValue({});
     mockedReadComicMeta.mockResolvedValue(null);
@@ -101,8 +126,10 @@ beforeEach(() => {
         downloadDir: null,
         darkMode: false,
         autoTrim: false,
+        followUpdate: true,
         lastSource: null,
         lastCategory: {},
+        followCheckedAt: null,
     });
     mockedHistory.mockResolvedValue([
         { comic: comic("a"), chapterIndex: 3, chapterTitle: "", lastReadAt: 2 },
@@ -181,8 +208,10 @@ describe("书架页的删除", () => {
             downloadDir: "/mock/downloads",
             darkMode: false,
             autoTrim: false,
+            followUpdate: true,
             lastSource: null,
             lastCategory: {},
+            followCheckedAt: null,
         });
         mockedScan.mockResolvedValue(items);
         mockedDeleteDownloaded.mockResolvedValue(undefined);
@@ -206,8 +235,10 @@ describe("书架页的删除", () => {
             downloadDir: "/mock/downloads",
             darkMode: false,
             autoTrim: false,
+            followUpdate: true,
             lastSource: null,
             lastCategory: {},
+            followCheckedAt: null,
         });
         mockedScan.mockResolvedValue([
             {
@@ -245,8 +276,10 @@ describe("书架页的删除", () => {
             downloadDir: "/mock/downloads",
             darkMode: false,
             autoTrim: false,
+            followUpdate: true,
             lastSource: null,
             lastCategory: {},
+            followCheckedAt: null,
         });
         mockedScan.mockResolvedValue([
             {
@@ -297,6 +330,192 @@ describe("书架页的删除", () => {
         await waitFor(() => expect(screen.getByText("选一个存着漫画的文件夹")).toBeTruthy());
 
         expect(screen.queryByRole("button", { name: "删除", hidden: true })).toBeNull();
+    });
+});
+
+describe("书架追更角标", () => {
+    function followRecord(newChapterIndexes: number[]): {
+        checkedAt: number;
+        baseline: { index: number };
+        newChapterIndexes: number[];
+        needsRebuild: boolean;
+    } {
+        return {
+            checkedAt: 1,
+            baseline: { index: 5 },
+            newChapterIndexes,
+            needsRebuild: false,
+        };
+    }
+
+    it("收藏卡片显示未读数，读完最新一话后当场归零", async () => {
+        mockedFavorites.mockResolvedValue([comic("x")]);
+        mockedFollowStates.mockResolvedValue({ "mangadex:x": followRecord([6, 7, 8]) });
+        renderLibrary();
+        await waitFor(() => expect(screen.getByText("作品 a")).toBeTruthy());
+
+        fireEvent.click(screen.getByRole("tab", { name: /收藏/ }));
+        await waitFor(() => expect(screen.getByText("作品 x")).toBeTruthy());
+        expect(screen.getByText("3")).toBeTruthy();
+    });
+
+    it("进度读到最新一话后角标不显示", async () => {
+        mockedFavorites.mockResolvedValue([comic("x")]);
+        mockedFollowStates.mockResolvedValue({ "mangadex:x": followRecord([6, 7, 8]) });
+        mockedProgressAll.mockResolvedValue({
+            "mangadex:x": { chapterIndex: 8, pageIndex: 0, offsetInPage: 0, updatedAt: 1 },
+        });
+        renderLibrary();
+        await waitFor(() => expect(screen.getByText("作品 a")).toBeTruthy());
+
+        fireEvent.click(screen.getByRole("tab", { name: /收藏/ }));
+        await waitFor(() => expect(screen.getByText("作品 x")).toBeTruthy());
+        expect(screen.queryByText("3")).toBeNull();
+    });
+
+    it("未读数超过 99 显示 99+", async () => {
+        mockedFavorites.mockResolvedValue([comic("x")]);
+        mockedFollowStates.mockResolvedValue({
+            "mangadex:x": followRecord(Array.from({ length: 150 }, (_, i) => i + 6)),
+        });
+        renderLibrary();
+        await waitFor(() => expect(screen.getByText("作品 a")).toBeTruthy());
+
+        fireEvent.click(screen.getByRole("tab", { name: /收藏/ }));
+        await waitFor(() => expect(screen.getByText("作品 x")).toBeTruthy());
+        expect(screen.getByText("99+")).toBeTruthy();
+    });
+
+    it("进入书架触发一次检查，带上收藏列表", async () => {
+        mockedFavorites.mockResolvedValue([comic("x"), comic("y")]);
+        renderLibrary();
+        await waitFor(() =>
+            expect(mockedRunCheck).toHaveBeenCalledWith([comic("x"), comic("y")]),
+        );
+    });
+
+    it("页面回到前台时再检查一次，在后台不检查", async () => {
+        function Harness({ active }: { active: boolean }) {
+            return (
+                <PageActiveContext.Provider value={active}>
+                    <MemoryRouter initialEntries={["/library"]}>
+                        <ToastProvider>
+                            <Routes>
+                                <Route path="/library" element={<Library />} />
+                            </Routes>
+                        </ToastProvider>
+                    </MemoryRouter>
+                </PageActiveContext.Provider>
+            );
+        }
+        const { rerender } = render(<Harness active={true} />);
+        await waitFor(() => expect(mockedRunCheck).toHaveBeenCalledTimes(1));
+
+        rerender(<Harness active={false} />);
+        expect(mockedRunCheck).toHaveBeenCalledTimes(1);
+
+        rerender(<Harness active={true} />);
+        await waitFor(() => expect(mockedRunCheck).toHaveBeenCalledTimes(2));
+    });
+
+    it("删除收藏同时删掉追更状态", async () => {
+        mockedFavorites.mockResolvedValue([comic("x")]);
+        mockedRemoveFavorite.mockResolvedValue(undefined);
+        renderLibrary();
+        await waitFor(() => expect(screen.getByText("作品 a")).toBeTruthy());
+
+        fireEvent.click(screen.getByRole("tab", { name: /收藏/ }));
+        await waitFor(() => expect(screen.getByText("作品 x")).toBeTruthy());
+        fireEvent.click(screen.getAllByRole("button", { name: "删除", hidden: true })[0]);
+
+        await waitFor(() => expect(mockedRemoveFollowState).toHaveBeenCalledWith("mangadex", "x"));
+    });
+});
+
+describe("书架追更的失败呈现与手动刷新", () => {
+    function Harness({ active }: { active: boolean }) {
+        return (
+            <PageActiveContext.Provider value={active}>
+                <MemoryRouter initialEntries={["/library"]}>
+                    <ToastProvider>
+                        <Routes>
+                            <Route path="/library" element={<Library />} />
+                        </Routes>
+                    </ToastProvider>
+                </MemoryRouter>
+            </PageActiveContext.Provider>
+        );
+    }
+
+    it("页头显示「N 部未检查成功」，点开列出作品与原因", async () => {
+        mockedFavorites.mockResolvedValue([comic("x")]);
+        mockedRunCheck.mockResolvedValue({
+            updated: [],
+            failures: [
+                {
+                    source: "mangadex",
+                    comicId: "x",
+                    title: "作品 x",
+                    reason: "fetch(detail): HTTP 500",
+                },
+                { source: "mangadex", comicId: "y", title: "作品 y", reason: "没有取到章节" },
+            ],
+        });
+        renderLibrary();
+        await waitFor(() => expect(screen.getByText("2 部未检查成功")).toBeTruthy());
+        // 原因默认收着
+        expect(screen.queryByText("fetch(detail): HTTP 500")).toBeNull();
+
+        fireEvent.click(screen.getByRole("button", { name: /2 部未检查成功/ }));
+
+        expect(screen.getByText("作品 x")).toBeTruthy();
+        expect(screen.getByText("fetch(detail): HTTP 500")).toBeTruthy();
+        expect(screen.getByText("作品 y")).toBeTruthy();
+        expect(screen.getByText("没有取到章节")).toBeTruthy();
+    });
+
+    it("失败提示在任意 tab 都可见", async () => {
+        mockedFavorites.mockResolvedValue([comic("x")]);
+        mockedRunCheck.mockResolvedValue({
+            updated: [],
+            failures: [{ source: "mangadex", comicId: "x", title: "作品 x", reason: "HTTP 500" }],
+        });
+        renderLibrary();
+        await waitFor(() => expect(screen.getByText("1 部未检查成功")).toBeTruthy());
+
+        fireEvent.click(screen.getByRole("tab", { name: /下载/ }));
+
+        expect(screen.getByText("1 部未检查成功")).toBeTruthy();
+    });
+
+    it("被节流跳过的那一次不清空上一次的失败提示", async () => {
+        mockedFavorites.mockResolvedValue([comic("x")]);
+        mockedRunCheck.mockResolvedValueOnce({
+            updated: [],
+            failures: [{ source: "mangadex", comicId: "x", title: "作品 x", reason: "HTTP 500" }],
+        });
+        const { rerender } = render(<Harness active={true} />);
+        await waitFor(() => expect(screen.getByText("1 部未检查成功")).toBeTruthy());
+
+        // 第二次进书架被节流：结果为空，失败提示应当保留
+        mockedRunCheck.mockResolvedValueOnce({ updated: [], failures: [] });
+        rerender(<Harness active={false} />);
+        rerender(<Harness active={true} />);
+        await waitFor(() => expect(mockedRunCheck).toHaveBeenCalledTimes(2));
+
+        expect(screen.getByText("1 部未检查成功")).toBeTruthy();
+    });
+
+    it("手动刷新带 manual 选项，不受节流限制", async () => {
+        mockedFavorites.mockResolvedValue([comic("x")]);
+        renderLibrary();
+        await waitFor(() => expect(mockedRunCheck).toHaveBeenCalledTimes(1));
+
+        fireEvent.click(screen.getByRole("button", { name: /刷新追更/ }));
+
+        await waitFor(() =>
+            expect(mockedRunCheck).toHaveBeenCalledWith([comic("x")], { manual: true }),
+        );
     });
 });
 

@@ -1,15 +1,19 @@
 import { downloadDir } from "@tauri-apps/api/path";
 import { FILES, getStore } from "./store";
 
-/** 设置（最小集：下载目录/夜间模式/自动裁边 + 发现页浏览位置 + WebDAV 凭据）。 */
+/** 设置（最小集：下载目录/夜间模式/自动裁边/书架追更 + 发现页浏览位置 + WebDAV 凭据）。 */
 export interface Settings {
     downloadDir: string | null;
     darkMode: boolean;
     autoTrim: boolean;
+    /** 书架追更：进入书架时自动检查收藏作品有没有新话。手动刷新不受它限制。 */
+    followUpdate: boolean;
     /** 发现页上次选择的源（重启后回到这里）。 */
     lastSource: string | null;
     /** 每个源上次停留的分类标签：`{sourceId: label}`。 */
     lastCategory: Record<string, string>;
+    /** 书架追更最近一次自动检查的时刻（unix 毫秒）；null 表示还没检查过。手动刷新不写这里。 */
+    followCheckedAt: number | null;
     /** WebDAV 备份凭据（wayfinder #24/#25：明文存 settings，钥匙串后置）。 */
     webdav?: { baseUrl: string; user: string; password: string };
 }
@@ -18,8 +22,10 @@ const DEFAULT_SETTINGS: Settings = {
     downloadDir: null,
     darkMode: false,
     autoTrim: false,
+    followUpdate: true,
     lastSource: null,
     lastCategory: {},
+    followCheckedAt: null,
 };
 
 /** 下载目录默认值（grilling #6：~/Downloads/mojuan）。 */

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import Detail from "./Detail";
 import type { Chapter, Comic } from "../api";
@@ -24,6 +24,11 @@ vi.mock("../lib/storage/favorites", () => ({
     toggleFavorite: vi.fn(),
 }));
 
+vi.mock("../lib/storage/follow", () => ({
+    getFollowState: vi.fn().mockResolvedValue(null),
+    setFollowState: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("../lib/storage/progress", () => ({
     getProgress: vi.fn().mockResolvedValue(null),
 }));
@@ -41,15 +46,23 @@ vi.mock("../lib/storage/sources", () => ({
     persistSourceCache: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { crawl, crawlCached } from "../api";
+import { crawl, crawlCached, listDownloaded } from "../api";
 import { getKnownComic } from "../lib/storage/comics";
+import { toggleFavorite } from "../lib/storage/favorites";
+import { getFollowState, setFollowState, type FollowRecord } from "../lib/storage/follow";
 import { getProgress } from "../lib/storage/progress";
+import { getSettings, type Settings } from "../lib/storage/settings";
 import { ToastProvider } from "../components/toast";
 
 const mockedCrawl = vi.mocked(crawl);
 const mockedCached = vi.mocked(crawlCached);
 const mockedKnown = vi.mocked(getKnownComic);
+const mockedToggleFavorite = vi.mocked(toggleFavorite);
+const mockedFollowState = vi.mocked(getFollowState);
+const mockedSetFollow = vi.mocked(setFollowState);
 const mockedProgress = vi.mocked(getProgress);
+const mockedSettings = vi.mocked(getSettings);
+const mockedListDownloaded = vi.mocked(listDownloaded);
 
 const COMIC: Comic = {
     id: "webtoons-1",
@@ -67,7 +80,7 @@ const COMIC: Comic = {
     lastReadTime: 0,
 };
 
-function chapter(index: number): Chapter {
+function chapter(index: number, opts: Partial<Chapter> = {}): Chapter {
     return {
         index,
         title: `第 ${index} 话`,
@@ -75,6 +88,32 @@ function chapter(index: number): Chapter {
         external: false,
         downloaded: false,
         read: false,
+        ...opts,
+    };
+}
+
+function followRecord(
+    newChapterIndexes: number[],
+    overrides: Partial<FollowRecord> = {},
+): FollowRecord {
+    return {
+        checkedAt: 1,
+        baseline: { index: 1 },
+        newChapterIndexes,
+        needsRebuild: false,
+        ...overrides,
+    };
+}
+
+function settings(downloadDir: string | null): Settings {
+    return {
+        downloadDir,
+        darkMode: false,
+        autoTrim: false,
+        followUpdate: true,
+        followCheckedAt: null,
+        lastSource: null,
+        lastCategory: {},
     };
 }
 
@@ -94,6 +133,12 @@ beforeEach(() => {
     vi.clearAllMocks();
     mockedCached.mockResolvedValue(null);
     mockedKnown.mockResolvedValue(null);
+    mockedFollowState.mockResolvedValue(null);
+    mockedProgress.mockResolvedValue(null);
+    mockedToggleFavorite.mockResolvedValue(false);
+    mockedSetFollow.mockResolvedValue(undefined);
+    mockedSettings.mockResolvedValue(settings(null));
+    mockedListDownloaded.mockResolvedValue({});
     mockedCrawl.mockResolvedValue({ comic: COMIC, chapters: [chapter(1)] });
 });
 
@@ -169,5 +214,281 @@ describe("Detail 详情页", () => {
         });
         renderDetail();
         expect(await screen.findByText("继续阅读 第七话 相遇")).toBeTruthy();
+    });
+
+    it("收藏一部没有进度的作品：基线取章节表最后一话（外链不算）", async () => {
+        mockedToggleFavorite.mockResolvedValue(true);
+        mockedCrawl.mockResolvedValue({
+            comic: COMIC,
+            chapters: [chapter(1), chapter(2), { ...chapter(3), external: true }],
+        });
+        renderDetail();
+        expect(await screen.findByText("第 2 话")).toBeTruthy();
+
+        fireEvent.click(screen.getByRole("button", { name: /收藏/ }));
+
+        await waitFor(() =>
+            expect(mockedSetFollow).toHaveBeenCalledWith("webtoons", "webtoons-1", {
+                checkedAt: expect.any(Number),
+                baseline: { index: 2, title: "第 2 话" },
+                newChapterIndexes: [],
+                needsRebuild: false,
+            }),
+        );
+    });
+
+    it("收藏一部已有进度的作品：基线取进度记录", async () => {
+        mockedToggleFavorite.mockResolvedValue(true);
+        mockedProgress.mockResolvedValue({
+            chapterIndex: 7,
+            chapterTitle: "第七话 相遇",
+            pageIndex: 0,
+            offsetInPage: 0,
+            updatedAt: 1,
+        });
+        mockedCrawl.mockResolvedValue({
+            comic: COMIC,
+            chapters: [chapter(7), chapter(8)],
+        });
+        renderDetail();
+        expect(await screen.findByText("第 8 话")).toBeTruthy();
+
+        fireEvent.click(screen.getByRole("button", { name: /收藏/ }));
+
+        await waitFor(() =>
+            expect(mockedSetFollow).toHaveBeenCalledWith("webtoons", "webtoons-1", {
+                checkedAt: expect.any(Number),
+                baseline: { index: 7, title: "第七话 相遇" },
+                newChapterIndexes: [],
+                needsRebuild: false,
+            }),
+        );
+    });
+
+    it("取消收藏时不写追更状态", async () => {
+        mockedToggleFavorite.mockResolvedValue(false);
+        renderDetail();
+        expect(await screen.findByText("第 1 话")).toBeTruthy();
+
+        fireEvent.click(screen.getByRole("button", { name: /收藏/ }));
+
+        await waitFor(() => expect(mockedToggleFavorite).toHaveBeenCalled());
+        expect(mockedSetFollow).not.toHaveBeenCalled();
+    });
+
+    it("追更基线失配（待重建）时，打开详情页即以当前进度重建基线", async () => {
+        mockedFollowState.mockResolvedValue({
+            checkedAt: 1,
+            baseline: { index: 500, title: "第五百话" },
+            newChapterIndexes: [],
+            needsRebuild: true,
+        });
+        // 源改版：进度里的旧序号在新表里不存在，靠话名落到新表那一话
+        mockedProgress.mockResolvedValue({
+            chapterIndex: 500,
+            chapterTitle: "第二话",
+            pageIndex: 0,
+            offsetInPage: 0,
+            updatedAt: 1,
+        });
+        mockedCrawl.mockResolvedValue({
+            comic: COMIC,
+            chapters: [chapter(101, { title: "第一话" }), chapter(102, { title: "第二话" })],
+        });
+        renderDetail();
+
+        await waitFor(() =>
+            expect(mockedSetFollow).toHaveBeenCalledWith("webtoons", "webtoons-1", {
+                checkedAt: expect.any(Number),
+                baseline: { index: 102, title: "第二话" },
+                newChapterIndexes: [],
+                needsRebuild: false,
+            }),
+        );
+    });
+
+    it("待重建且进度在新表里也落不到时，基线落到最后一话（不显示积压）", async () => {
+        mockedFollowState.mockResolvedValue({
+            checkedAt: 1,
+            baseline: { index: 500, title: "第五百话" },
+            newChapterIndexes: [],
+            needsRebuild: true,
+        });
+        mockedProgress.mockResolvedValue({
+            chapterIndex: 500,
+            chapterTitle: "第五百话",
+            pageIndex: 0,
+            offsetInPage: 0,
+            updatedAt: 1,
+        });
+        mockedCrawl.mockResolvedValue({
+            comic: COMIC,
+            chapters: [chapter(1), chapter(2), chapter(3)],
+        });
+        renderDetail();
+
+        await waitFor(() =>
+            expect(mockedSetFollow).toHaveBeenCalledWith("webtoons", "webtoons-1", {
+                checkedAt: expect.any(Number),
+                baseline: { index: 3, title: "第 3 话" },
+                newChapterIndexes: [],
+                needsRebuild: false,
+            }),
+        );
+    });
+});
+
+describe("Detail 未读标记", () => {
+    it("基线之后的话标出未读，最新一话额外加「新」", async () => {
+        mockedCrawl.mockResolvedValue({
+            comic: COMIC,
+            chapters: [chapter(1), chapter(2), chapter(3)],
+        });
+        mockedFollowState.mockResolvedValue(followRecord([2, 3]));
+        renderDetail();
+        expect(await screen.findByText("第 1 话")).toBeTruthy();
+
+        // 第 2、3 话标未读；第 1 话是基线，不标
+        const dots = await screen.findAllByRole("img", { name: "未读" });
+        expect(dots).toHaveLength(2);
+        // 未读点用青绿强调，蓝色留给当前章节
+        for (const dot of dots) expect(dot.className).toContain("bg-accent");
+        expect(
+            within(screen.getByRole("link", { name: /第 1 话/ })).queryByRole("img", {
+                name: "未读",
+            }),
+        ).toBeNull();
+        // 最新一话（第 3 话）额外加「新」，同样用青绿强调；第 2 话没有
+        expect(
+            within(screen.getByRole("link", { name: /第 3 话/ })).getByText("新").className,
+        ).toContain("bg-accent/25");
+        expect(
+            within(screen.getByRole("link", { name: /第 2 话/ })).queryByText("新"),
+        ).toBeNull();
+    });
+
+    it("当前章节仍用蓝色标记，与青绿的未读标记分开", async () => {
+        mockedCrawl.mockResolvedValue({
+            comic: COMIC,
+            chapters: [chapter(1), chapter(2)],
+        });
+        mockedFollowState.mockResolvedValue(followRecord([2], { baseline: { index: 1 } }));
+        mockedProgress.mockResolvedValue({
+            chapterIndex: 1,
+            pageIndex: 0,
+            offsetInPage: 0,
+            updatedAt: 1,
+        });
+        renderDetail();
+        expect(await screen.findByText("第 1 话")).toBeTruthy();
+
+        // 当前章节（第 1 话）带蓝色 10% 底与描边
+        expect(screen.getByRole("link", { name: "第 1 话" }).className).toContain(
+            "bg-primary/10",
+        );
+        // 第 2 话是未读：青绿点，不带当前章节的蓝色底
+        const unread = screen.getByRole("link", { name: /第 2 话/ });
+        expect(unread.className).not.toContain("bg-primary/10");
+        expect(within(unread).getByRole("img", { name: "未读" }).className).toContain(
+            "bg-accent",
+        );
+    });
+
+    it("进度之后的话才算未读，最新一话是未读集里序号最大的一话", async () => {
+        mockedCrawl.mockResolvedValue({
+            comic: COMIC,
+            chapters: [chapter(2), chapter(3), chapter(4)],
+        });
+        mockedFollowState.mockResolvedValue(followRecord([2, 3, 4]));
+        mockedProgress.mockResolvedValue({
+            chapterIndex: 3,
+            pageIndex: 0,
+            offsetInPage: 0,
+            updatedAt: 1,
+        });
+        renderDetail();
+        expect(await screen.findByText("第 4 话")).toBeTruthy();
+
+        expect(await screen.findAllByRole("img", { name: "未读" })).toHaveLength(1);
+        expect(
+            within(screen.getByRole("link", { name: /第 4 话/ })).getByText("新"),
+        ).toBeTruthy();
+    });
+
+    it("追更状态缺失（这部作品还没检查过）时不显示未读标记", async () => {
+        mockedCrawl.mockResolvedValue({
+            comic: COMIC,
+            chapters: [chapter(1), chapter(2), chapter(3)],
+        });
+        mockedFollowState.mockResolvedValue(null);
+        // 有进度，用「继续阅读」确认这次读取已经落到渲染上，再做否定的断言
+        mockedProgress.mockResolvedValue({
+            chapterIndex: 1,
+            pageIndex: 0,
+            offsetInPage: 0,
+            updatedAt: 1,
+        });
+        renderDetail();
+        expect(await screen.findByText(/继续阅读/)).toBeTruthy();
+
+        expect(screen.queryAllByRole("img", { name: "未读" })).toHaveLength(0);
+        expect(screen.queryByText("新")).toBeNull();
+    });
+
+    it("基线待重建时先按当前进度重建，再标出基线之后的未读", async () => {
+        mockedCrawl.mockResolvedValue({
+            comic: COMIC,
+            chapters: [chapter(1), chapter(2), chapter(3)],
+        });
+        mockedFollowState.mockResolvedValue(followRecord([2, 3], { needsRebuild: true }));
+        mockedProgress.mockResolvedValue({
+            chapterIndex: 1,
+            pageIndex: 0,
+            offsetInPage: 0,
+            updatedAt: 1,
+        });
+        renderDetail();
+
+        // 重建后基线落到进度里的第 1 话，未读就是它之后的第 2、3 话
+        expect(await screen.findAllByRole("img", { name: "未读" })).toHaveLength(2);
+        expect(
+            within(screen.getByRole("link", { name: /第 3 话/ })).getByText("新"),
+        ).toBeTruthy();
+    });
+
+    it("刚收藏、基线取自收藏时刻：收藏之后还没有新增时不标未读", async () => {
+        mockedCrawl.mockResolvedValue({
+            comic: COMIC,
+            chapters: [chapter(1), chapter(2), chapter(3)],
+        });
+        // 收藏时记下的基线是最后一话，newChapterIndexes 为空
+        mockedFollowState.mockResolvedValue(
+            followRecord([], { baseline: { index: 3, title: "第 3 话" } }),
+        );
+        // 用「已下载」确认这次读取已经落到渲染上，再做否定的断言
+        mockedSettings.mockResolvedValue(settings("/tmp/mojuan"));
+        mockedListDownloaded.mockResolvedValue({ "3": [] });
+        const { container } = renderDetail();
+        await waitFor(() => expect(container.querySelector(".text-success")).toBeTruthy());
+
+        expect(screen.queryAllByRole("img", { name: "未读" })).toHaveLength(0);
+        expect(screen.queryByText("新")).toBeNull();
+    });
+
+    it("未读标记与下载状态并存：已下载的话同时带对勾与未读点", async () => {
+        mockedCrawl.mockResolvedValue({
+            comic: COMIC,
+            chapters: [chapter(1), chapter(2), chapter(3)],
+        });
+        mockedFollowState.mockResolvedValue(followRecord([2, 3]));
+        mockedSettings.mockResolvedValue(settings("/tmp/mojuan"));
+        mockedListDownloaded.mockResolvedValue({ "2": [] });
+        renderDetail();
+        expect(await screen.findByText("第 3 话")).toBeTruthy();
+
+        const downloaded = screen.getByRole("link", { name: /第 2 话/ });
+        // 下载对勾是 lucide 图标（没有可访问角色），按它的 success 配色确认仍在
+        expect(downloaded.querySelector(".text-success")).toBeTruthy();
+        expect(within(downloaded).getByRole("img", { name: "未读" })).toBeTruthy();
     });
 });
