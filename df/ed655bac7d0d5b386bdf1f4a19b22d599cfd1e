@@ -1,0 +1,19 @@
+.codegraph/.gitignore
+  s_fd9761ff2f06b8::t_75f454052bb3ee 1-5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.49-trip",
+  "base_commit_sha": "dfed655bac7d0d5b386bdf1f4a19b22d599cfd1e",
+  "prompts": {},
+  "sessions": {
+    "s_fd9761ff2f06b8": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_aeef6ff8-ab25-40c0-a636-0c82b28c7fdd",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
