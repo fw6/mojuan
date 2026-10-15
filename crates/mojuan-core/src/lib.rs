@@ -34,6 +34,12 @@ pub fn cached_result(op: &str, source: &str, payload: &str, cache_dir: &str) -> 
     crawler::cached_result(op, source, payload, cache_dir)
 }
 
+/// 源调试台的一次运行：文档原文、op、payload 与会话隐藏值快照进，运行记录 JSON 出。
+/// 走真实的网络与渲染通道，但不写结果缓存、不碰任何已装源。
+pub fn crawl_debug(document: &str, op: &str, payload: &str, hidden: &str) -> String {
+    crawler::crawl_debug(document, op, payload, hidden)
+}
+
 /// 源文档的 JSON Schema（编辑器补全与源仓库提交时校验用；由 Rust 结构体生成，见 ADR-0002）。
 pub fn source_schema() -> String {
     crawler::doc::SourceDoc::schema_json()

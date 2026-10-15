@@ -78,6 +78,58 @@ export function crawlCached<T>(
         .catch(() => null);
 }
 
+/** 调试运行记录里的一步。`validate` 是文档校验（失败时它是唯一一步、不发起请求）；
+ * `plan` 是运行时求出的 URL 与请求头；`fetch` 是响应体（超 512 KB 截断并置 truncated，
+ * 抓取失败时带 error 而不带 body）；`parse` 是解析输出与本次运行产出的隐藏值。 */
+export type DebugStep =
+    | { stage: "validate"; ok: boolean; error?: string }
+    | { stage: "plan"; name: string; url: string; headers: Record<string, string> }
+    | {
+          stage: "fetch";
+          name: string;
+          url: string;
+          body?: string;
+          truncated?: boolean;
+          error?: string;
+      }
+    | { stage: "parse"; data: unknown; hidden: DebugHiddenEntry[] };
+
+/** parse 步骤里运行时交出的隐藏值（本次运行产出的，键是漫画 id）。 */
+export interface DebugHiddenEntry {
+    name: string;
+    key: string;
+    value: string;
+}
+
+/** 调试会话的隐藏值快照：名 → 键 → 值（入参与返回值同形，由前端持有并往返）。 */
+export type DebugHidden = Record<string, Record<string, string>>;
+
+/** 一次调试运行的记录。`data` 是 parse 的输出（未走到 parse 为 null）。 */
+export interface DebugRun {
+    ok: boolean;
+    data: unknown;
+    hidden: DebugHidden;
+    steps: DebugStep[];
+    error: { stage: string; message: string } | null;
+}
+
+/** 调试台跑一次取数：文档原文 + op + payload + 会话隐藏值快照。
+ * 走真实网络、请求头与渲染通道，与线上取数是同一条路；不做重试、不写结果缓存、
+ * 不碰任何已装源（调试台里的文档与已装源完全隔离）。 */
+export function crawlDebug(
+    document: string,
+    op: string,
+    payload: unknown,
+    hidden: DebugHidden,
+): Promise<DebugRun> {
+    return invoke<string>("crawl_debug", {
+        document,
+        op,
+        payload: JSON.stringify(payload),
+        hidden: JSON.stringify(hidden),
+    }).then((json) => JSON.parse(json) as DebugRun);
+}
+
 export const mojuanVersion = () => invoke<string>("mojuan_version");
 
 /** 设置移动端系统栏（状态栏与导航栏）的显隐与图标明暗。

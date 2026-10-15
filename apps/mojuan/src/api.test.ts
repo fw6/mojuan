@@ -11,6 +11,7 @@ import { applySources } from "./lib/sources";
 import {
     crawl,
     crawlCached,
+    crawlDebug,
     imgSrc,
     initImgProxy,
     mojuanVersion,
@@ -154,6 +155,111 @@ describe("crawlCached（结果缓存读取：stale-while-revalidate 的 stale �
     it("缓存通道异常时按未命中降级（不抛错，不影响 crawl 主路径）", async () => {
         mockedInvoke.mockRejectedValue(new Error("command not found"));
         await expect(crawlCached("category", "mangadex", { label: "x" })).resolves.toBeNull();
+    });
+});
+
+describe("crawlDebug（调试台一次运行：文档 + op + payload + 隐藏值快照）", () => {
+    it("把文档/op/payload/隐藏值传给 crawl_debug 并解析运行记录的各步", async () => {
+        mockedInvoke.mockResolvedValue(
+            JSON.stringify({
+                ok: true,
+                data: [{ id: "a", title: "漫" }],
+                hidden: { seriesUrl: { a: "https://x/1" } },
+                steps: [
+                    { stage: "validate", ok: true },
+                    {
+                        stage: "plan",
+                        name: "list",
+                        url: "https://x/search?q=1",
+                        headers: { Referer: "https://x/" },
+                    },
+                    {
+                        stage: "fetch",
+                        name: "list",
+                        url: "https://x/search?q=1",
+                        body: "<html>",
+                        truncated: false,
+                    },
+                    {
+                        stage: "parse",
+                        data: [{ id: "a", title: "漫" }],
+                        hidden: [{ name: "seriesUrl", key: "a", value: "https://x/1" }],
+                    },
+                ],
+                error: null,
+            }),
+        );
+
+        const out = await crawlDebug('{"schema":1}', "search", { keyword: "1" }, {});
+
+        expect(mockedInvoke).toHaveBeenCalledWith("crawl_debug", {
+            document: '{"schema":1}',
+            op: "search",
+            payload: JSON.stringify({ keyword: "1" }),
+            hidden: "{}",
+        });
+        expect(out.steps.map((s) => s.stage)).toEqual([
+            "validate",
+            "plan",
+            "fetch",
+            "parse",
+        ]);
+        expect(out.data).toEqual([{ id: "a", title: "漫" }]);
+        expect(out.hidden.seriesUrl.a).toBe("https://x/1");
+        expect(out.error).toBeNull();
+    });
+
+    it("失败记录带阶段名与停在哪一步", async () => {
+        mockedInvoke.mockResolvedValue(
+            JSON.stringify({
+                ok: false,
+                data: null,
+                hidden: {},
+                steps: [
+                    { stage: "validate", ok: true },
+                    {
+                        stage: "plan",
+                        name: "list",
+                        url: "http://127.0.0.1:1/search",
+                        headers: {},
+                    },
+                    {
+                        stage: "fetch",
+                        name: "list",
+                        url: "http://127.0.0.1:1/search",
+                        error: "fetch(search): error sending request",
+                    },
+                ],
+                error: { stage: "fetch", message: "fetch(search): error sending request" },
+            }),
+        );
+
+        const out = await crawlDebug('{"schema":1}', "search", {}, {});
+
+        expect(out.ok).toBe(false);
+        expect(out.error?.stage).toBe("fetch");
+        expect(out.error?.message).toContain("fetch");
+        const failed = out.steps[out.steps.length - 1];
+        expect(failed.stage).toBe("fetch");
+        expect(failed).toHaveProperty("error", "fetch(search): error sending request");
+    });
+
+    it("文档校验失败时只有 validate 一步", async () => {
+        mockedInvoke.mockResolvedValue(
+            JSON.stringify({
+                ok: false,
+                data: null,
+                hidden: {},
+                steps: [{ stage: "validate", ok: false, error: "validate(search): 文档解析失败" }],
+                error: { stage: "validate", message: "validate(search): 文档解析失败" },
+            }),
+        );
+
+        const out = await crawlDebug("{broken", "search", {}, {});
+
+        expect(out.steps).toHaveLength(1);
+        expect(out.steps[0].stage).toBe("validate");
+        expect(out.error?.stage).toBe("validate");
     });
 });
 
