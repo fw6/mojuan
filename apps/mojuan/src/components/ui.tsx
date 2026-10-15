@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { motion } from "motion/react";
 import { Inbox, TriangleAlert } from "lucide-react";
 import { imgSrc, type Comic } from "../api";
@@ -381,9 +381,20 @@ export function LinkButton({
     className?: string;
     children: ReactNode;
 }) {
-    // HashRouter 下用锚点等价于路由跳转，同时拿到 Button 的弹簧交互
+    const navigate = useNavigate();
+    // 保留锚点（ButtonLink 的弹簧交互挂在 <a> 上），点击交给路由推记录：原生锚点在
+    // HashRouter 下会走浏览器的片段跳转，那条记录没有路由的 state，idx 与真实位置脱节
     return (
-        <ButtonLink href={`#${to}`} variant={variant} size={size} className={className}>
+        <ButtonLink
+            href={`#${to}`}
+            variant={variant}
+            size={size}
+            className={className}
+            onClick={(event) => {
+                event.preventDefault();
+                navigate(to);
+            }}
+        >
             {children}
         </ButtonLink>
     );

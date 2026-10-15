@@ -216,6 +216,33 @@ describe("Detail 详情页", () => {
         expect(await screen.findByText("继续阅读 第七话 相遇")).toBeTruthy();
     });
 
+    it("「继续阅读」按路由跳转（锚点上的点击交给路由器推记录）", async () => {
+        mockedProgress.mockResolvedValue({
+            chapterIndex: 1,
+            chapterTitle: "第 1 话",
+            pageIndex: 0,
+            offsetInPage: 0,
+            updatedAt: 1,
+        });
+        render(
+            <MemoryRouter initialEntries={["/comic/webtoons/webtoons-1"]}>
+                <ToastProvider>
+                    <Routes>
+                        <Route path="/comic/:source/:comicId" element={<Detail />} />
+                        <Route
+                            path="/reader/:source/:comicId/:chapterIndex"
+                            element={<div>阅读器占位</div>}
+                        />
+                    </Routes>
+                </ToastProvider>
+            </MemoryRouter>,
+        );
+
+        const link = await screen.findByText(/继续阅读/);
+        fireEvent.click(link);
+        expect(screen.getByText("阅读器占位")).toBeTruthy();
+    });
+
     it("收藏一部没有进度的作品：基线取章节表最后一话（外链不算）", async () => {
         mockedToggleFavorite.mockResolvedValue(true);
         mockedCrawl.mockResolvedValue({

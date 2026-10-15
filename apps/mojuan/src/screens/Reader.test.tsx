@@ -8,7 +8,7 @@ import {
     screen,
     within,
 } from "@testing-library/react";
-import { MemoryRouter, Routes, Route } from "react-router-dom";
+import { MemoryRouter, Routes, Route, useNavigate } from "react-router-dom";
 import Reader from "./Reader";
 import type { Chapter, Comic, DownloadTaskView } from "../api";
 import type { ProgressRecord } from "../lib/storage/progress";
@@ -606,5 +606,61 @@ describe("阅读器的目录", () => {
 
         const button = screen.getByRole("button", { name: "目录" }) as HTMLButtonElement;
         expect(button.disabled).toBe(true);
+    });
+});
+
+describe("阅读器的返回", () => {
+    /** 详情占位页：返回按钮与真实详情页一样回退一格。 */
+    function DetailStub() {
+        const navigate = useNavigate();
+        return (
+            <div>
+                详情占位
+                <button type="button" onClick={() => navigate(-1)}>
+                    返回
+                </button>
+            </div>
+        );
+    }
+
+    /** 发现页 → 详情 → 阅读器，三条记录，阅读器在栈顶。 */
+    function renderReaderInStack() {
+        return render(
+            <ToastProvider>
+                <MemoryRouter
+                    initialEntries={[
+                        "/",
+                        "/comic/webtoons/webtoons-1",
+                        "/reader/webtoons/webtoons-1/1",
+                    ]}
+                    initialIndex={2}
+                >
+                    <Routes>
+                        <Route path="/" element={<div>发现占位</div>} />
+                        <Route
+                            path="/comic/:source/:comicId"
+                            element={<DetailStub />}
+                        />
+                        <Route
+                            path="/reader/:source/:comicId/:chapterIndex"
+                            element={<Reader />}
+                        />
+                    </Routes>
+                </MemoryRouter>
+            </ToastProvider>,
+        );
+    }
+
+    it("回退到详情那条记录，详情再返回落到发现页", async () => {
+        renderReaderInStack();
+        const back = await screen.findByLabelText("返回章节");
+
+        fireEvent.click(back);
+        expect(screen.getByText("详情占位")).toBeTruthy();
+
+        // 详情页自己的返回同样是回退一格：阅读器当初要是跳转到详情（压出第二条记录），
+        // 这里会退回到阅读器，两个页面互相顶住
+        fireEvent.click(screen.getByRole("button", { name: "返回" }));
+        expect(screen.getByText("发现占位")).toBeTruthy();
     });
 });

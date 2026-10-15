@@ -7,7 +7,7 @@ import {
     type MouseEvent,
     type ReactNode,
 } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useScroll } from "motion/react";
@@ -623,6 +623,11 @@ export default function Reader({ local = false }: { local?: boolean }) {
         setRetryKey((k) => k + 1);
     }, []);
 
+    /** 离开阅读器：回退历史记录。阅读器是从作品详情（本地阅读是从书架）点进来的，
+     * 回退一格正好是来处；跳转到详情页则会在历史里压出第二条，详情页自己的返回再退回
+     * 阅读器，两个页面互相顶住出不去。 */
+    const leave = useCallback(() => navigate(-1), [navigate]);
+
     // 卸载时清掉两个防抖计时器，并把窗口还原——否则从全屏的阅读器返回，
     // 会把全屏状态带到其他页面上
     useEffect(
@@ -648,12 +653,12 @@ export default function Reader({ local = false }: { local?: boolean }) {
                 setFullscreen(false);
                 setChrome(true);
             } else {
-                navigate(-1);
+                leave();
             }
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [fullscreen, navigate, setChrome, tocOpen]);
+    }, [fullscreen, leave, setChrome, tocOpen]);
 
     const lastChapter = currentIdxRef.current >= chapters.length - 1;
     const currentChapter = chapters[currentIdxRef.current];
@@ -664,9 +669,6 @@ export default function Reader({ local = false }: { local?: boolean }) {
         downloadsRef.current,
         downloadTasks,
     );
-    const backTo = local
-        ? "/library"
-        : `/comic/${source}/${encodeURIComponent(id)}`;
 
     return (
         <div className="relative flex min-h-0 flex-1 flex-col bg-reader-canvas text-reader-foreground">
@@ -714,7 +716,7 @@ export default function Reader({ local = false }: { local?: boolean }) {
                                 ? "这部作品还没有下载的章节"
                                 : "这部作品只有站外章节，已经隐藏"}
                         </p>
-                        <ReaderButton onClick={() => navigate(-1)}>返回</ReaderButton>
+                        <ReaderButton onClick={leave}>返回</ReaderButton>
                     </div>
                 ) : (
                     <>
@@ -772,7 +774,7 @@ export default function Reader({ local = false }: { local?: boolean }) {
                             <div className="flex flex-col items-center gap-3 px-6 py-16 text-center">
                                 <BookOpen className="size-8 text-reader-muted" />
                                 <p className="text-sm font-medium">已经是最后一话了</p>
-                                <ReaderButton onClick={() => navigate(backTo)}>
+                                <ReaderButton onClick={leave}>
                                     回到章节列表
                                 </ReaderButton>
                             </div>
@@ -807,13 +809,14 @@ export default function Reader({ local = false }: { local?: boolean }) {
                     paddingTop: `max(${CHROME_PADDING_TOP}, env(safe-area-inset-top))`,
                 }}
             >
-                <Link
-                    to={backTo}
+                <button
+                    type="button"
+                    onClick={leave}
                     aria-label={local ? "返回书架" : "返回章节"}
                     className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-reader-muted transition-colors hover:bg-white/10 hover:text-reader-foreground"
                 >
                     <ArrowLeft className="size-4" />
-                </Link>
+                </button>
                 <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">
                         {comic?.title ?? "阅读中"}

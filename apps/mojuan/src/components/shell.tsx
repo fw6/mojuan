@@ -121,6 +121,7 @@ function SidebarContent({
     onOpenMenu: () => void;
 }) {
     const { open } = useAnimatedSidebar();
+    const navigate = useNavigate();
     return (
         <>
             <AnimatedSidebarHeader
@@ -175,8 +176,10 @@ function SidebarContent({
                             <AnimatedSidebarMenuButton
                                 // lucide 默认 24px，会撑破侧边栏 16px 的图标位并压低 2px（DESIGN.md 的 Navigation）
                                 icon={<entry.icon className="size-4" />}
-                                href={`#${entry.to}`}
                                 isActive={isActivePath(pathname, entry)}
+                                // 不给 href：原生锚点在 HashRouter 下走浏览器的片段跳转，
+                                // 那条历史记录没有路由的 state（idx 脱节），交给路由推
+                                onSelect={() => navigate(entry.to)}
                                 // 折叠轨道里只有图标，居中落在轨道中心（与红黄绿同一轴）
                                 className={cn(!open && "justify-center")}
                             >
