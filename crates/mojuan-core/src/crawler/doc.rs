@@ -417,6 +417,15 @@ impl SourceDoc {
 impl OpSpec {
     fn validate(&self, op_name: &str, placeholders: &[String]) -> Result<(), String> {
         let fail = |msg: String| Err(format!("op {op_name}: {msg}"));
+        // categories 的产出是分类标签列表（未声明该 op 时是静态分类表，没有页面可以求值），
+        // 没有漫画 id 作为隐藏值的键，op 级 hidden 在这里没有求值对象。
+        if op_name == "categories" && !self.hidden.is_empty() {
+            return fail(
+                "不能声明 op 级 hidden：产出是分类标签列表，没有漫画 id 作为隐藏值的键，\
+                 op 级 hidden 没有求值对象"
+                    .to_string(),
+            );
+        }
         if let Some(input) = &self.input {
             if input != "html" && input != "json" {
                 return fail(format!("input 只能是 html 或 json，得到 {input}"));
@@ -959,6 +968,24 @@ mod tests {
         );
         let err = SourceDoc::parse(&json).unwrap_err();
         assert!(err.contains("script 与 items 不能并存"), "err = {err}");
+    }
+
+    #[test]
+    fn categories_rejects_op_level_hidden() {
+        // categories 的产出是分类标签列表，没有漫画 id 作为隐藏值的键，op 级 hidden 没有求值对象
+        let json = MINIMAL.replace(
+            r#""search": {"#,
+            r#""categories": {
+                    "request": [{ "name": "list", "url": "{base}/cats" }],
+                    "items": "a.cat",
+                    "fields": { "label": "span" },
+                    "hidden": { "seriesUrl": "a" }
+                },
+                "search": {"#,
+        );
+        let err = SourceDoc::parse(&json).unwrap_err();
+        assert!(err.contains("op categories"), "err = {err}");
+        assert!(err.contains("没有求值对象"), "err = {err}");
     }
 
     #[test]

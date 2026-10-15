@@ -822,7 +822,7 @@ function parse(reqJson) {
       data = detailOf(spec, e, hidden);
       break;
     case "images":
-      data = imagesOf(spec, e);
+      data = imagesOf(spec, e, hidden);
       break;
     default:
       throw new Error("未知 op: " + req.op);
@@ -922,7 +922,7 @@ function detailOf(spec, e, hidden) {
   return { comic: comic, chapters: chapters };
 }
 
-function imagesOf(spec, e) {
+function imagesOf(spec, e, hidden) {
   var nodes = itemList(spec, e);
   var out = [];
   for (var i = 0; i < nodes.length; i++) {
@@ -931,6 +931,14 @@ function imagesOf(spec, e) {
     ie.index = i + 1;
     var u = readField(spec.url, nodes[i], ie);
     if (u) out.push(u);
+  }
+  if (spec.hidden) {
+    // 图片页的 op 级隐藏值：整页根节点当一行求值，键是漫画 id（与 detail 同形）
+    var scope = e.root;
+    var ce = envOf(e);
+    ce.root = scope;
+    var comicId = (DOC.idPrefix || "") + localComicId(e);
+    collectHidden(spec.hidden, [{ node: scope, env: ce }], hidden, function () { return comicId; });
   }
   return out;
 }
