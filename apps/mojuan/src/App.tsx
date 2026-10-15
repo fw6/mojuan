@@ -6,6 +6,7 @@ import Reader from "./screens/Reader";
 import Library from "./screens/Library";
 import Settings from "./screens/Settings";
 import Downloads from "./screens/Downloads";
+import SourceDebugger from "./screens/SourceDebugger";
 import { hydrateSourceCaches, whenSourcesReady } from "./lib/storage/sources";
 import { ThemeProvider } from "./lib/theme";
 import { ToastProvider } from "./components/toast";
@@ -13,11 +14,13 @@ import { AppShell } from "./components/shell";
 import { KeepAliveRoutes, type PageRoute } from "./components/keep-alive";
 
 /** 路由表：页面 + 保留策略（离开后按完整路径保留的实例数，0 = 离开即卸载）。 */
-const PAGES: PageRoute[] = [
+export const PAGES: PageRoute[] = [
     { path: "/", element: <Sources />, keep: 1 },
     { path: "/library", element: <Library />, keep: 1 },
     { path: "/downloads", element: <Downloads />, keep: 1 },
     { path: "/settings", element: <Settings />, keep: 1 },
+    // 调试台：整屏两栏（编辑器 + 运行面板与步骤日志），自带滚动容器，离开即释放
+    { path: "/debug", element: <SourceDebugger />, keep: 0, scroll: false },
     // 详情页保留最近打开的几部：返回时章节列表与滚动位置都还在
     { path: "/comic/:source/:comicId", element: <Detail />, keep: 5 },
     // 阅读器图片与虚拟列表占用大，离开即释放

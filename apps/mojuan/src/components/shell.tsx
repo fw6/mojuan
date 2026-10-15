@@ -32,6 +32,7 @@ function pageTitle(pathname: string): string {
     if (pathname.startsWith("/library")) return "书架";
     if (pathname.startsWith("/downloads")) return "下载";
     if (pathname.startsWith("/settings")) return "设置";
+    if (pathname.startsWith("/debug")) return "源调试台";
     if (pathname.startsWith("/comic/")) return "作品详情";
     return "墨卷";
 }
