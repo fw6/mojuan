@@ -4,7 +4,7 @@ import { MemoryRouter, useNavigate } from "react-router-dom";
 import SourceDebugger from "./SourceDebugger";
 import type { DebugRun } from "../api";
 
-// S7 seam：源调试台页面。测的是页面的外部行为——编辑器里的文档、选的 op 与填的参数
+// seam：源调试台页面。测的是页面的外部行为——编辑器里的文档、选的 op 与填的参数
 // 交给 crawl_debug，运行记录按步骤渲染出来，失败时说清停在哪一步。
 // 命令边界在 ../api（与仓库里其它 screens 测试同一形状）。
 
