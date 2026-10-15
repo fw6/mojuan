@@ -320,6 +320,24 @@ mod tests {
         <div class="item" data-id="1" data-href="https://example.com/1"><h3>甲</h3></div>
     "#;
 
+    /// detail 的 op 级隐藏值：对详情页根节点求值，键是漫画 id。
+    const DETAIL_DOC: &str = r#"{
+        "schema": 1, "id": "demo", "title": "演示", "idPrefix": "demo-",
+        "base": "https://example.com",
+        "ops": {
+            "detail": {
+                "request": [{ "name": "page", "url": "{base}/comic/{comicId}" }],
+                "comic": { "title": "h1" },
+                "hidden": { "seriesUrl": { "select": "a.series", "attr": "data-href" } }
+            }
+        }
+    }"#;
+
+    const DETAIL_HTML: &str = r#"
+        <h1>甲</h1>
+        <a class="series" data-href="https://example.com/s/7">系列</a>
+    "#;
+
     fn entry() -> std::sync::Arc<Entry> {
         sync(SyncPayload {
             runtime: None,
@@ -353,6 +371,36 @@ mod tests {
         assert!(comics[0].get("seriesUrl").is_none(), "隐藏值不进前端数据");
         // 隐藏值进了缓存：images 的 {seriesUrl} 现在能解析（值来自响应里的 data-href）
         assert_eq!(entry.hidden_ctx()["seriesUrl"]["demo-1"], "https://example.com/1");
+    }
+
+    /// detail 的 op 级隐藏值：对详情页根节点求值，键是漫画 id，值经 parse 信封进宿主缓存。
+    #[test]
+    fn detail_hidden_is_evaluated_against_the_page_root() {
+        let _guard = registry::test_lock();
+        let port = spawn_mock(|_| DETAIL_HTML.to_string());
+        let doc = DETAIL_DOC.replace("https://example.com", &format!("http://127.0.0.1:{port}"));
+        sync(SyncPayload {
+            runtime: None,
+            sources: vec![SyncSource {
+                id: "demo".to_string(),
+                document: doc,
+            }],
+        });
+        let entry = registry::get("demo").unwrap();
+        let (out, ok) = run(&entry, "detail", r#"{"comicId":"demo-7"}"#);
+        assert!(ok, "out = {out}");
+        let detail: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(detail["comic"]["id"], "demo-7");
+        assert_eq!(detail["comic"]["title"], "甲");
+        assert!(
+            detail["comic"].get("seriesUrl").is_none(),
+            "隐藏值不进前端数据"
+        );
+        // 键是漫画 id，值是对详情页根节点求值的结果（响应里的 a.series data-href）
+        assert_eq!(
+            entry.hidden_ctx()["seriesUrl"]["demo-7"],
+            "https://example.com/s/7"
+        );
     }
 
     #[test]
