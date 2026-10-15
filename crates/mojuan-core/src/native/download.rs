@@ -6,6 +6,7 @@
 //! downloader 就能跑同一份策略代码。
 
 use crate::native::comic_meta;
+use crate::native::download_index;
 use crate::native::files;
 use crate::native::queue::{
     DownloadProgress, DownloadQueue, DownloadTask, DownloadTaskView, EnqueueResult,
@@ -148,11 +149,14 @@ impl DownloadRuntime {
 
     /// 一话的下载流程：章内按页顺序，单页失败重试 `page_attempts` 次；
     /// 每页开始前检查取消（取消由 cancel 或删除整部作品置位，worker 据此中止）。
+    /// 下载索引在整话结束时一次写入（`downloaded`）：逐页写的话两个 worker 的
+    /// 读—改—写会互相覆盖，落下的条目会让那一页在线读时回落到联网取图。
     fn run_task(&self, task: DownloadTask) {
         let id = task.task_id.clone();
         self.inner.in_flight.lock().unwrap().insert(id.clone());
         self.emit(task.to_progress()); // downloading
-        for (page, _) in task.urls.iter().enumerate() {
+        let mut downloaded: Vec<(String, String)> = Vec::new();
+        for (page, url) in task.urls.iter().enumerate() {
             if self.inner.queue.lock().unwrap().is_cancelled(&id) {
                 break; // 已取消：状态已置 cancelled，不再下载后续页
             }
@@ -166,6 +170,12 @@ impl DownloadRuntime {
                     }
                     Err(e) => failure = e,
                 }
+            }
+            if ok {
+                downloaded.push((
+                    url.clone(),
+                    files::page_rel_path(task.chapter_index, page as i64, url),
+                ));
             }
             let progress = if ok {
                 self.inner.queue.lock().unwrap().mark_page_done(&id)
@@ -182,6 +192,16 @@ impl DownloadRuntime {
             if !ok {
                 break;
             }
+        }
+        // 落下的页记进索引。写在清在途标记之前：删除整部作品要等这个标记，
+        // 索引不会在目录删掉之后又被写回来。
+        if !downloaded.is_empty() {
+            let _ = download_index::record_downloads(
+                &task.dir,
+                &task.source,
+                &task.comic_id,
+                &downloaded,
+            );
         }
         // 退出：清在途标记并唤醒等待者（删除整部作品的调用靠它确认页已写完）
         let mut in_flight = self.inner.in_flight.lock().unwrap();
@@ -239,6 +259,34 @@ mod tests {
             "",
             (0..pages).map(|i| format!("https://x/{i}.jpg")).collect(),
         )
+    }
+
+    /// 指定话号的下载任务（索引竞争用例要两话并行，url 按话号区分开）。
+    fn task_in_chapter(chapter: i64, pages: usize, dir: &str) -> DownloadTask {
+        DownloadTask::new(
+            "webtoons",
+            "c1",
+            "标题",
+            "https://x/cover.jpg",
+            chapter,
+            "第 1 话",
+            dir,
+            "",
+            (0..pages)
+                .map(|i| format!("https://x/{chapter}/{i}.jpg"))
+                .collect(),
+        )
+    }
+
+    /// 临时的下载目录（每部作品一个子目录，用例结束自行清理）。
+    fn temp_download_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "mojuan-dl-index-{}-{}",
+            tag,
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
     }
 
     /// 领下一个任务（worker 循环之外直接驱动 `run_task`，测试不需要线程与等待）。
@@ -464,5 +512,164 @@ mod tests {
         assert_eq!(dropper.join().unwrap(), 1);
         assert!(runtime.snapshot().is_empty());
         worker.join().unwrap();
+    }
+
+    /// 索引在整话结束时一次写入：下载过程中查不到这一话的页。
+    /// 逐页写的话两个 worker 的读—改—写会互相覆盖，落下的条目让那一页在线读时
+    /// 回落到联网取图（实测丢过 chapter_2/3.jpg）。
+    #[test]
+    fn index_is_written_once_when_the_chapter_finishes() {
+        let dir = temp_download_dir("once");
+        let (_seen, sink) = collector();
+        let seen_index = Arc::new(Mutex::new(Vec::new()));
+        let probe = seen_index.clone();
+        let runtime = DownloadRuntime::with_downloader(
+            Box::new(move |task: &DownloadTask, page: usize| {
+                // 每下载一页时查一次索引：这一话的第一页在不在
+                let found = download_index::find_downloaded_file(
+                    &task.dir,
+                    &task.source,
+                    &task.comic_id,
+                    &task.urls[0],
+                )
+                .is_some();
+                probe.lock().unwrap().push((page, found));
+                Ok(())
+            }),
+            sink,
+        );
+
+        runtime.enqueue(task_in_chapter(1, 3, dir.to_str().unwrap()));
+        runtime.run_task(take_next(&runtime));
+
+        assert_eq!(
+            *seen_index.lock().unwrap(),
+            vec![(0, false), (1, false), (2, false)],
+            "下载过程中索引就已经写入了"
+        );
+        for (url, rel) in [
+            ("https://x/1/0.jpg", "chapter_1/0.jpg"),
+            ("https://x/1/1.jpg", "chapter_1/1.jpg"),
+            ("https://x/1/2.jpg", "chapter_1/2.jpg"),
+        ] {
+            assert_eq!(
+                download_index::find_downloaded_file(dir.to_str().unwrap(), "webtoons", "c1", url),
+                Some(dir.join("webtoons").join("c1").join(rel)),
+                "{url} 没有记进索引"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 两个 worker 同时结束各自的一话：两次写入串行，两话的条目都要在。
+    #[test]
+    fn concurrent_chapters_keep_both_index_entries() {
+        let dir = temp_download_dir("concurrent");
+        let (_seen, sink) = collector();
+        let runtime = DownloadRuntime::with_downloader(
+            Box::new(|task: &DownloadTask, page: usize| {
+                // 按生产实现的命名落一个占位文件，顺带核对相对路径的算法一致
+                let rel = files::page_rel_path(task.chapter_index, page as i64, &task.urls[page]);
+                let file = std::path::Path::new(&task.dir)
+                    .join(&task.source)
+                    .join(&task.comic_id)
+                    .join(rel);
+                std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+                std::fs::write(&file, b"x").unwrap();
+                Ok(())
+            }),
+            sink,
+        );
+
+        let first = task_in_chapter(1, 6, dir.to_str().unwrap());
+        let second = task_in_chapter(2, 6, dir.to_str().unwrap());
+        std::thread::scope(|scope| {
+            scope.spawn(|| runtime.run_task(first.clone()));
+            scope.spawn(|| runtime.run_task(second.clone()));
+        });
+
+        for task in [&first, &second] {
+            for url in &task.urls {
+                assert!(
+                    download_index::find_downloaded_file(
+                        dir.to_str().unwrap(),
+                        "webtoons",
+                        "c1",
+                        url
+                    )
+                    .is_some(),
+                    "{url} 的条目被另一话的写入覆盖了"
+                );
+            }
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 极简图片服务器：记录收到的请求行，任何路径都返回同一份图片体。
+    fn spawn_image_server() -> (u16, Arc<Mutex<Vec<String>>>) {
+        use std::io::{Read, Write};
+        const BODY: &[u8] = b"real-jpg-bytes";
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let seen = requests.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().take(4) {
+                let Ok(mut stream) = stream else { break };
+                let mut buf = [0u8; 2048];
+                let n = stream.read(&mut buf).unwrap_or(0);
+                seen.lock()
+                    .unwrap()
+                    .push(String::from_utf8_lossy(&buf[..n]).to_string());
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    BODY.len()
+                );
+                let _ = stream.write_all(head.as_bytes());
+                let _ = stream.write_all(BODY);
+                let _ = stream.flush();
+            }
+        });
+        (port, requests)
+    }
+
+    /// 真实下载路径端到端：文件按 `chapter_<n>/<页号>.<扩展名>` 落盘，索引里每个 url
+    /// 都指到那个文件（下载器与索引两处的命名必须一致）。
+    #[test]
+    fn real_download_writes_files_and_the_index() {
+        let (port, requests) = spawn_image_server();
+        let dir = temp_download_dir("real");
+        let (_seen, sink) = collector();
+        let runtime = DownloadRuntime::new(sink);
+        let urls: Vec<String> = (0..2).map(|i| format!("http://127.0.0.1:{port}/{i}.jpg")).collect();
+
+        runtime.enqueue(DownloadTask::new(
+            "webtoons",
+            "c1",
+            "标题",
+            "",
+            1,
+            "第 1 话",
+            dir.to_str().unwrap(),
+            "",
+            urls.clone(),
+        ));
+        runtime.run_task(take_next(&runtime));
+
+        assert_eq!(requests.lock().unwrap().len(), 2);
+        assert_eq!(runtime.snapshot()[0].status, TaskStatus::Done);
+        for (url, rel) in urls.iter().zip(["chapter_1/0.jpg", "chapter_1/1.jpg"]) {
+            let file = dir.join("webtoons").join("c1").join(rel);
+            assert_eq!(std::fs::read(&file).unwrap(), b"real-jpg-bytes", "{rel}");
+            assert_eq!(
+                download_index::find_downloaded_file(dir.to_str().unwrap(), "webtoons", "c1", url),
+                Some(file),
+                "{url} 的索引条目"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

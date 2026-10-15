@@ -45,9 +45,20 @@ pub fn chapter_downloaded(dir: &str, source: &str, comic_id: &str, chapter_index
     }
 }
 
+/// 页文件在作品目录下的相对路径（`chapter_<n>/<页号>.<扩展名>`）。
+/// 下载落盘与下载索引记录共用这一份命名规则。
+pub fn page_rel_path(chapter_index: i64, page_index: i64, url: &str) -> String {
+    format!(
+        "{}/{}.{}",
+        chapter_dir_name(chapter_index),
+        page_index,
+        extension_from_url(url)
+    )
+}
+
 /// 下载单张图片到 `<dir>/<source>/<comicId>/chapter_<n>/<page>.<ext>`。
 /// referer 非空时带上（热链域如 pstatic.net 需要，research #4）；失败返回原因（HTTP 状态、写盘错误）。
-/// 成功后记录 url → 相对路径到下载索引（wayfinder #31：离线也传 url）。
+/// 下载索引由下载运行时在整话结束时一次写入（`download_index::record_downloads`）。
 pub fn download_image(
     url: &str,
     dir: &str,
@@ -62,14 +73,10 @@ pub fn download_image(
         headers.push(("Referer", referer));
     }
     let bytes = http::get_bytes(url, &headers)?;
-    let chapter_dir = comic_dir(dir, source, comic_id).join(chapter_dir_name(chapter_index));
-    fs::create_dir_all(&chapter_dir)
-        .map_err(|e| format!("创建 {} 失败: {e}", chapter_dir.display()))?;
-    let file = chapter_dir.join(format!("{}.{}", page_index, extension_from_url(url)));
+    let file = comic_dir(dir, source, comic_id).join(page_rel_path(chapter_index, page_index, url));
+    let parent = file.parent().unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent).map_err(|e| format!("创建 {} 失败: {e}", parent.display()))?;
     fs::write(&file, bytes).map_err(|e| format!("写入 {} 失败: {e}", file.display()))?;
-    // 记录下载索引（相对路径：chapter_<n>/<file>）
-    let rel = format!("{}/{}", chapter_dir_name(chapter_index), file.file_name().unwrap().to_string_lossy());
-    let _ = download_index::record_download(dir, source, comic_id, url, &rel);
     Ok(())
 }
 
