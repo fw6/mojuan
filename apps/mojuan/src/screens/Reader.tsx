@@ -135,7 +135,6 @@ export default function Reader({ local = false }: { local?: boolean }) {
     const chromeFull = isMobile ? immersive : fullscreen;
 
     const containerRef = useRef<HTMLDivElement>(null);
-    const columnRef = useRef<HTMLDivElement>(null);
     const chaptersRef = useRef<Chapter[]>([]);
     const comicRef = useRef<Comic | null>(null);
     const pagesRef = useRef<PageItem[]>([]);
@@ -220,18 +219,18 @@ export default function Reader({ local = false }: { local?: boolean }) {
         chapterIndex: Number(chapterIndex),
     });
 
-    /** 阅读列宽度（决定估算高度与最小高度）。 */
-    useEffect(() => {
-        const el = columnRef.current;
+    /** 阅读列宽度（决定估算高度与最小高度）。保留小数：页高按它乘图片宽高比算，取整见 ReaderPage。
+     * 观察器挂在 ref 回调上而不是 effect 上：阅读列要等章节取到才渲染，effect 只跑一次会在
+     * 它挂载之前退出，宽度会一直停在初始值。 */
+    const attachColumn = useCallback((el: HTMLDivElement | null) => {
         if (!el) return;
-        const update = (width: number) => setColumnWidth(Math.round(width));
-        update(el.getBoundingClientRect().width);
+        setColumnWidth(el.getBoundingClientRect().width);
         const observer = new ResizeObserver(([entry]) =>
-            update(entry.contentRect.width),
+            setColumnWidth(entry.contentRect.width),
         );
         observer.observe(el);
         return () => observer.disconnect();
-    }, [autoTrim]);
+    }, []);
 
     /** 视口高度（决定挂载范围与下一话的提前量）。 */
     useEffect(() => {
@@ -721,7 +720,7 @@ export default function Reader({ local = false }: { local?: boolean }) {
                 ) : (
                     <>
                         <div
-                            ref={columnRef}
+                            ref={attachColumn}
                             className="relative mx-auto w-full"
                             style={{ maxWidth: autoTrim ? "none" : 720 }}
                         >
@@ -737,10 +736,8 @@ export default function Reader({ local = false }: { local?: boolean }) {
                                             key={vi.key}
                                             data-index={vi.index}
                                             ref={virtualizer.measureElement}
-                                            className="absolute left-0 top-0 w-full overflow-hidden"
-                                            style={{
-                                                transform: `translateY(${vi.start}px)`,
-                                            }}
+                                            className="absolute left-0 w-full overflow-hidden"
+                                            style={{ top: vi.start }}
                                         >
                                             <ReaderPage
                                                 src={imgSrc(page.url, {
@@ -750,6 +747,7 @@ export default function Reader({ local = false }: { local?: boolean }) {
                                                 index={vi.index}
                                                 reserved={reserved}
                                                 autoTrim={autoTrim}
+                                                columnWidth={columnWidth}
                                                 onNaturalSize={onNaturalSize}
                                             />
                                         </div>
@@ -895,7 +893,7 @@ function ReaderButton({
     );
 }
 
-/** 阅读页图片：宽度 100%、高度自适应；加载完成前用预留高度撑住布局，避免滚动跳动。
+/** 阅读页图片：宽度 100%、高度按整 CSS 像素；加载完成前用预留高度撑住布局，避免滚动跳动。
  * 挂载范围就是预取范围，因此一律 eager——浏览器自己的 lazy 只提前约一屏，
  * 会把已经挂载好的后两屏又压回"滚到才取"。 */
 function ReaderPage({
@@ -903,17 +901,32 @@ function ReaderPage({
     index,
     reserved,
     autoTrim,
+    columnWidth,
     onNaturalSize,
 }: {
     src: string;
     index: number;
     reserved: number;
     autoTrim: boolean;
+    /** 阅读列的真实宽度（带小数）：页高按它乘图片宽高比算。 */
+    columnWidth: number;
     onNaturalSize: (width: number, height: number) => void;
 }) {
     const [loaded, setLoaded] = useState(false);
     const [failed, setFailed] = useState(false);
     const [retryKey, setRetryKey] = useState(0);
+    const [ratio, setRatio] = useState(0);
+
+    /**
+     * 页高取整到整 CSS 像素：虚拟器（@tanstack/react-virtual 的 measureElement）把测量高度
+     * Math.round 后累加成下一页的偏移量，页高带小数时下一页会偏离上一页的真实底边，
+     * 露出的画布就是两页之间那条细线（安卓 dpr 2.625 上约 1 物理像素）。取整后测量值与
+     * 渲染值一致，缝隙为 0。页面偏移量用 top 而不是 transform：非 transform 元素的绘制
+     * 位置会被吸附到整设备像素，相邻两页在设备像素上严丝合缝（实测 30 组几何 × dpr 全为 0）。
+     */
+    const pageHeight = ratio
+        ? Math.round(columnWidth * (autoTrim ? 1.06 : 1) * ratio)
+        : null;
 
     return (
         <div style={{ minHeight: loaded ? undefined : reserved }}>
@@ -959,16 +972,22 @@ function ReaderPage({
                         onLoad={(el) => {
                             setLoaded(true);
                             if (el.naturalWidth > 0) {
+                                setRatio(el.naturalHeight / el.naturalWidth);
                                 onNaturalSize(el.naturalWidth, el.naturalHeight);
                             }
                         }}
                         onFailed={() => setFailed(true)}
-                        className="block h-auto w-full"
-                        style={
-                            autoTrim
-                                ? { width: "106%", marginLeft: "-3%", maxWidth: "none" }
-                                : undefined
-                        }
+                        className="block w-full"
+                        style={{
+                            ...(autoTrim
+                                ? {
+                                      width: "106%",
+                                      marginLeft: "-3%",
+                                      maxWidth: "none",
+                                  }
+                                : null),
+                            height: pageHeight ?? undefined,
+                        }}
                     />
                 )}
             </div>

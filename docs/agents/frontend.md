@@ -142,8 +142,8 @@ id，manhuagui 这类源是七八位数字）。下载页的数据来自入队�
 
 `src/screens/Reader.tsx` 里每一页是「先占位、后收缩」：
 
-- 未加载页用 `estimatePageHeight()` 预留高度（阅读列宽度 × 该源已加载页面的实测中位宽高比，`ratioSamples` 按源记忆）；比例变化小于 5% 不重建布局。
-- 图片 `width: 100%; height: auto`，加载完成后释放预留高度。
+- 未加载页用 `estimatePageHeight()` 预留高度（阅读列宽度 × 该源已加载页面的实测中位宽高比，`ratioSamples` 按源记忆）；比例变化小于 5% 不重建布局。阅读列宽度保留小数，它的 ResizeObserver 挂在列的 ref 回调上（列要等章节取到才渲染，用 effect 会在它挂载之前退出）。
+- 图片 `width: 100%`，加载完成后按「列宽 × 真实宽高比」取整成整 CSS 像素的高度渲染，并释放预留高度。取整不能省：虚拟器（`@tanstack/react-virtual` 的 `measureElement`）把测量高度 `Math.round` 后累加成下一页的偏移量，页高带小数时下一页会偏离上一页的真实底边，露出的画布就是两页之间那条细线（安卓 dpr 2.625 上约 1 物理像素）。页面偏移量用 `top` 而不是 `transform`：非 transform 元素的绘制位置会被吸附到整设备像素，相邻两页在设备像素上严丝合缝。
 - 长列表靠 `@tanstack/react-virtual` 虚拟化，滚到话末自动加载下一话（跨话连续）。
 
 预取：虚拟器的 `overscan` 按**视口上下各两屏**换算成页数（`PREFETCH_SCREENS`，长条漫一页就超过两屏所以下限 1，上限 8）。挂载范围就是预取范围，挂载到的页一律 `loading="eager"`——浏览器自己的 `lazy` 只提前约一屏，会把已经挂载好的后两屏又压回「滚到才取」。下一话的触发同样按两屏算（`nearBottomByPx`，按像素而不是滚动比例，长条漫与常规页才都合适）。
