@@ -39,13 +39,16 @@ interface InstalledSource {
 }
 
 /** 参数输入的字段名就是 payload 的键名（与 core 的取数契约一致）。 */
-type ParamName =
-    | "keyword"
-    | "page"
-    | "label"
-    | "url"
-    | "comicId"
-    | "chapterIndex";
+const PARAM_NAMES = [
+    "keyword",
+    "page",
+    "label",
+    "url",
+    "comicId",
+    "chapterIndex",
+] as const;
+
+type ParamName = (typeof PARAM_NAMES)[number];
 
 interface ParamField {
     name: ParamName;
@@ -75,27 +78,15 @@ const OP_FIELDS: Record<DebugOp, ParamField[]> = {
 };
 
 /** 参数输入的初值：全部留空（留空即不放进 payload）。 */
-const NO_VALUES: Record<ParamName, string> = {
-    keyword: "",
-    page: "",
-    label: "",
-    url: "",
-    comicId: "",
-    chapterIndex: "",
-};
+const NO_VALUES = Object.fromEntries(
+    PARAM_NAMES.map((name) => [name, ""] as const),
+) as Record<ParamName, string>;
 
 /** 会话隐藏值的初值：一次运行都没跑过，会话是空的。 */
 const NO_HIDDEN: DebugHidden = {};
 
 /** 响应体在步骤日志里的预览长度；更长的部分由「展开全文」按需渲染。 */
 const PREVIEW_CHARS = 1200;
-
-const STAGE_LABEL: Record<DebugStep["stage"], string> = {
-    validate: "文档校验",
-    plan: "请求计划",
-    fetch: "抓取响应",
-    parse: "解析输出",
-};
 
 /** 按 op 把填好的参数拼成 payload：留空的字段不放进去。 */
 function buildPayload(
@@ -395,16 +386,31 @@ function SessionHidden({
                     还没有累积的隐藏值：跑一次产出隐藏值的 op，它会在下一次运行里带回去
                 </p>
             ) : (
-                entries.map((entry) => (
-                    <div
-                        key={`${entry.name}:${entry.key}`}
-                        className="break-all font-mono text-xs text-foreground"
-                    >
-                        {`${entry.name}[${entry.key}] = ${entry.value}`}
-                    </div>
-                ))
+                <HiddenValues entries={entries} className="text-xs text-foreground" />
             )}
         </div>
+    );
+}
+
+/** 隐藏值条目：`名[键] = 值`（会话列表与 parse 步共用，键模板只写一次）。 */
+function HiddenValues({
+    entries,
+    className,
+}: {
+    entries: DebugHiddenEntry[];
+    className?: string;
+}) {
+    return (
+        <>
+            {entries.map((entry) => (
+                <div
+                    key={`${entry.name}:${entry.key}`}
+                    className={cn("break-all font-mono", className)}
+                >
+                    {`${entry.name}[${entry.key}] = ${entry.value}`}
+                </div>
+            ))}
+        </>
     );
 }
 
@@ -479,6 +485,7 @@ function Banner({
 /** 一步：一行摘要常驻，内容可折叠。 */
 function StepBlock({ index, step }: { index: number; step: DebugStep }) {
     const [open, setOpen] = useState(true);
+    const view = stageView(step);
     return (
         <div className="overflow-hidden rounded-lg border border-border">
             <button
@@ -491,10 +498,10 @@ function StepBlock({ index, step }: { index: number; step: DebugStep }) {
                     {index}
                 </span>
                 <span className="shrink-0 text-xs font-medium text-foreground">
-                    {STAGE_LABEL[step.stage]}
+                    {view.label}
                 </span>
                 <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
-                    {stepSummary(step)}
+                    {view.summary}
                 </span>
                 <ChevronDown
                     className={cn(
@@ -504,81 +511,80 @@ function StepBlock({ index, step }: { index: number; step: DebugStep }) {
                 />
             </button>
             {open && (
-                <div className="border-t border-border px-3 py-2.5">
-                    <StepBody step={step} />
-                </div>
+                <div className="border-t border-border px-3 py-2.5">{view.body()}</div>
             )}
         </div>
     );
 }
 
-/** 折叠着的那一行摘要：这一步在做什么，细节留给展开后的内容。 */
-function stepSummary(step: DebugStep): string {
+/** 一个阶段的展示：名称、折叠行的摘要、展开后的内容。判别联合在这里一次分派。 */
+function stageView(step: DebugStep): {
+    label: string;
+    summary: string;
+    body: () => ReactNode;
+} {
     switch (step.stage) {
         case "validate":
-            return step.ok ? "文档通过校验" : "文档未通过校验";
+            return {
+                label: "文档校验",
+                summary: step.ok ? "文档通过校验" : "文档未通过校验",
+                body: () =>
+                    step.ok ? (
+                        <p className="text-xs text-muted-foreground">文档通过校验</p>
+                    ) : (
+                        <p className="break-all text-xs text-destructive">
+                            {step.error ?? "文档未通过校验"}
+                        </p>
+                    ),
+            };
         case "plan":
-            return step.name;
-        case "fetch":
-            return step.error ? `${step.name}：抓取失败` : step.name;
-        case "parse":
-            return "解析结果";
-    }
-}
-
-function StepBody({ step }: { step: DebugStep }) {
-    switch (step.stage) {
-        case "validate":
-            return step.ok ? (
-                <p className="text-xs text-muted-foreground">文档通过校验</p>
-            ) : (
-                <p className="break-all text-xs text-destructive">
-                    {step.error ?? "文档未通过校验"}
-                </p>
-            );
-        case "plan":
-            return (
-                <div className="flex flex-col gap-2.5">
-                    <Field label="URL">
-                        <code className="break-all font-mono">{step.url}</code>
-                    </Field>
-                    <Field label="请求头">
-                        {Object.keys(step.headers).length === 0 ? (
-                            <span className="text-muted-foreground">没有请求头</span>
-                        ) : (
-                            Object.entries(step.headers).map(([name, value]) => (
-                                <div key={name} className="break-all font-mono">
-                                    {`${name}: ${value}`}
-                                </div>
-                            ))
-                        )}
-                    </Field>
-                </div>
-            );
-        case "fetch":
-            return <FetchBody step={step} />;
-        case "parse":
-            return (
-                <div className="flex flex-col gap-2.5">
-                    <Field label="输出">
-                        <pre className="max-h-80 overflow-auto rounded-md bg-muted/40 p-2 font-mono text-[11px]">
-                            {pretty(step.data)}
-                        </pre>
-                    </Field>
-                    {step.hidden.length > 0 && (
-                        <Field label="这次运行产出的隐藏值">
-                            {step.hidden.map((entry) => (
-                                <div
-                                    key={`${entry.name}:${entry.key}`}
-                                    className="break-all font-mono"
-                                >
-                                    {`${entry.name}[${entry.key}] = ${entry.value}`}
-                                </div>
-                            ))}
+            return {
+                label: "请求计划",
+                summary: step.name,
+                body: () => (
+                    <div className="flex flex-col gap-2.5">
+                        <Field label="URL">
+                            <code className="break-all font-mono">{step.url}</code>
                         </Field>
-                    )}
-                </div>
-            );
+                        <Field label="请求头">
+                            {Object.keys(step.headers).length === 0 ? (
+                                <span className="text-muted-foreground">没有请求头</span>
+                            ) : (
+                                Object.entries(step.headers).map(([name, value]) => (
+                                    <div key={name} className="break-all font-mono">
+                                        {`${name}: ${value}`}
+                                    </div>
+                                ))
+                            )}
+                        </Field>
+                    </div>
+                ),
+            };
+        case "fetch":
+            return {
+                label: "抓取响应",
+                summary: step.error ? `${step.name}：抓取失败` : step.name,
+                body: () => <FetchBody step={step} />,
+            };
+        case "parse":
+            return {
+                label: "解析输出",
+                summary: "解析结果",
+                body: () => (
+                    <div className="flex flex-col gap-2.5">
+                        <Field label="输出">
+                            <pre className="max-h-80 overflow-auto rounded-md bg-muted/40 p-2 font-mono text-[11px]">
+                                {pretty(step.data)}
+                            </pre>
+                        </Field>
+                        {step.hidden.length > 0 && (
+                            <Field label="这次运行产出的隐藏值">
+                                <HiddenValues entries={step.hidden} />
+                            </Field>
+                        )}
+                    </div>
+                ),
+            };
     }
 }
 
