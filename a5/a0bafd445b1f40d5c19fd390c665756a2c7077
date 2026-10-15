@@ -1,0 +1,34 @@
+crates/mojuan-core/src/native/files.rs
+  s_8a7ceda81bcd60::t_c9e3b82aa93408 48-58,61,76-78
+crates/mojuan-core/src/native/download.rs
+  s_8a7ceda81bcd60::t_d0c5c1c0e7116a 609-674
+  s_8a7ceda81bcd60::t_6c5a75dc7383c8 9
+  s_8a7ceda81bcd60::t_ab1264d0a45b04 516-549,555-556,558-608
+  s_8a7ceda81bcd60::t_23615b434e9c20 152-153,158-159,174-179,196-204
+  s_8a7ceda81bcd60::t_6f73c9eea5679d 264-291
+  s_8a7ceda81bcd60::t_a3a64e6a32467d 550-554,557
+crates/mojuan-core/src/native/download_index.rs
+  s_8a7ceda81bcd60::t_c48b1b9b22dde1 84
+  s_8a7ceda81bcd60::t_f34bcf75299bcc 50-53,56,59,61
+  s_8a7ceda81bcd60::t_b465c0969ce179 8
+  s_8a7ceda81bcd60::t_a716f497db9ee0 102-103,120,123,125-134,143-188
+  s_8a7ceda81bcd60::t_7b64363ad987e9 12
+  s_8a7ceda81bcd60::t_0bc3f318c2dce2 257-297,300-319
+  s_8a7ceda81bcd60::t_ae293858461122 298-299
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.49-trip",
+  "base_commit_sha": "a5a0bafd445b1f40d5c19fd390c665756a2c7077",
+  "prompts": {},
+  "sessions": {
+    "s_8a7ceda81bcd60": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_d7eb1efb-9227-43fe-858e-8b34d1a9e83b",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
