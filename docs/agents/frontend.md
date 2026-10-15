@@ -89,8 +89,7 @@ beui registry 里没有可用于远程搜索的现成组件：`morphing-search` 
 历史、收藏、下载三个 tab 的行用 beui 的 `swipeable-list`（`components/beui/swipeable-list.tsx`）承载，
 横向滑动露出右侧的「删除」。删除各走各的域：历史 `removeHistory`、收藏 `removeFavorite`（都只动自己那一个键，
 阅读位置与历史互不牵连）、下载 `deleteDownloaded(dir, source, comicId)` 命令（队列记录 + 磁盘整目录）。
-删除后按 id 就地过滤本地列表，不重取；失败弹错误提示、列表不动。「本地文件」tab 扫的是用户自己挑的文件夹，
-不属于应用管理的数据，`DirList` 不传 `onDelete` 时退回不带滑动的普通列表。
+删除后按 id 就地过滤本地列表，不重取；失败弹错误提示、列表不动。
 
 行的卡片外观由行内容自己给（`ComicRow` 或章节折叠块），滑动的外壳用 `classNames` 去掉自带的边框、底色与内边距，
 只留裁切与轨道底色，圆角取设计系统的 12px。

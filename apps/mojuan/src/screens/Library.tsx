@@ -1,13 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { open } from "@tauri-apps/plugin-dialog";
 import { AnimatePresence, motion } from "motion/react";
 import {
     ChevronDown,
     Clock,
     Download,
-    FolderOpen,
-    HardDrive,
     Heart,
     History,
     RefreshCw,
@@ -62,13 +59,12 @@ import {
     type SwipeableListClassNames,
 } from "../components/beui/swipeable-list";
 
-type Tab = "history" | "favorites" | "downloads" | "local";
+type Tab = "history" | "favorites" | "downloads";
 
 const TABS: { id: Tab; label: string; icon: typeof Clock }[] = [
     { id: "history", label: "历史", icon: History },
     { id: "favorites", label: "收藏", icon: Heart },
     { id: "downloads", label: "下载", icon: Download },
-    { id: "local", label: "本地文件", icon: FolderOpen },
 ];
 
 /** 横向滑动露出的一枚动作（三种列表共用）。 */
@@ -97,9 +93,7 @@ export default function Library() {
     const [history, setHistory] = useState<HistoryRecord[] | null>(null);
     const [favorites, setFavorites] = useState<Comic[] | null>(null);
     const [downloads, setDownloads] = useState<LocalComic[] | null>(null);
-    const [local, setLocal] = useState<LocalComic[]>([]);
     const [downloadDir, setDownloadDir] = useState<string | null>(null);
-    const [lastScanDir, setLastScanDir] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     // 追更：每部收藏的最近检查结果与阅读进度，角标由两者就地算出
     const [followStates, setFollowStates] = useState<Record<string, FollowRecord>>({});
@@ -172,17 +166,6 @@ export default function Library() {
             setFailures(result.failures);
         } catch (e) {
             toast.show(`刷新追更失败：${errorText(e)}`, "error");
-        }
-    }
-
-    async function pickLocalDir() {
-        try {
-            const dir = await open({ directory: true });
-            if (typeof dir !== "string") return;
-            setLastScanDir(dir);
-            setLocal(await scanLocal(dir));
-        } catch (e) {
-            toast.show(`扫描文件夹失败：${errorText(e)}`, "error");
         }
     }
 
@@ -416,7 +399,7 @@ export default function Library() {
                         hint="到「设置」里选一个文件夹存下载"
                     />
                 ) : downloads === null ? (
-                    <Loading label="正在扫描文件夹" />
+                    <Loading label="正在扫描下载目录" />
                 ) : downloads.length === 0 ? (
                     <EmptyState
                         icon={<Download className="size-7" />}
@@ -430,39 +413,6 @@ export default function Library() {
                         onDelete={(item) => void onDeleteDownload(item)}
                     />
                 ))}
-
-            {tab === "local" && (
-                <div>
-                    <div className="mb-4 flex flex-wrap items-center gap-3">
-                        <Button
-                            variant="secondary"
-                            size="md"
-                            onClick={() => void pickLocalDir()}
-                        >
-                            <FolderOpen className="size-4" />
-                            {lastScanDir ? "更换文件夹" : "选择文件夹"}
-                        </Button>
-                        {lastScanDir && (
-                            <span className="truncate font-mono text-xs text-muted-foreground">
-                                {lastScanDir}
-                            </span>
-                        )}
-                    </div>
-                    {local.length === 0 ? (
-                        <EmptyState
-                            icon={<HardDrive className="size-7" />}
-                            text={
-                                lastScanDir
-                                    ? "这个文件夹里没有漫画"
-                                    : "选一个存着漫画的文件夹"
-                            }
-                            hint="会读取里面的漫画和章节"
-                        />
-                    ) : (
-                        <DirList dir={lastScanDir!} items={local} />
-                    )}
-                </div>
-            )}
         </div>
     );
 }
@@ -519,11 +469,9 @@ function SwipeRow({ children }: { children: ReactNode }) {
 }
 
 /**
- * 下载/本地漫画列表（wayfinder #19）：点漫画就地展开章节，点章节进本地阅读器。
- * 传了 `onDelete` 的行可以左滑露出删除（下载 tab；「本地文件」扫描的是用户自己挑的
- * 文件夹，不属于应用管理的数据，不提供删除）。
- * 卡片显示的是下载时记进作品目录的标题与封面（`comic.json`）；用户自己挑的文件夹
- * 没有这份元数据，回落到 comicId 与占位封面。
+ * 下载漫画列表（wayfinder #19）：点漫画就地展开章节，点章节进本地阅读器，左滑露出删除。
+ * 卡片显示的是下载时记进作品目录的标题与封面（`comic.json`）；旧下载没有这份元数据，
+ * 回落到 comicId 与占位封面。
  */
 function DirList({
     dir,
@@ -532,7 +480,7 @@ function DirList({
 }: {
     dir: string;
     items: LocalComic[];
-    onDelete?: (item: LocalComic) => void;
+    onDelete: (item: LocalComic) => void;
 }) {
     const toast = useToast();
     const [expanded, setExpanded] = useState<string | null>(null);
@@ -567,7 +515,7 @@ function DirList({
         const chs = chapters[key];
         const meta = metas[key];
         const isOpen = expanded === key;
-        // 扁平导入的作品 source 是 "local"，没有在线作品页可进
+        // 扁平布局的旧下载 source 是 "local"，没有在线作品页可进
         const detailTo =
             d.source === FLAT_SOURCE
                 ? null
@@ -671,10 +619,6 @@ function DirList({
                 </AnimatePresence>
             </div>
         );
-    }
-
-    if (!onDelete) {
-        return <div className="flex flex-col gap-2">{items.map((d) => accordion(d))}</div>;
     }
 
     return (

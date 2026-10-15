@@ -27,9 +27,9 @@ export interface Chapter {
     read: boolean;
 }
 
-/** 本地扫描/下载目录里的漫画条目（wayfinder #19：带 source，扁平导入为 "local"）。
- * 标题与封面来自下载目录里的作品元数据（`comic.json`）；旧下载与用户自己的文件夹
- * 没有这份元数据，两个字段是空串，展示时回落到 comicId。 */
+/** 下载目录里的漫画条目（wayfinder #19：带 source，旧扁平布局为 "local"）。
+ * 标题与封面来自下载目录里的作品元数据（`comic.json`）；旧下载没有这份元数据，
+ * 两个字段是空串，展示时回落到 comicId。 */
 export interface LocalComic {
     source: string;
     comicId: string;
@@ -38,7 +38,7 @@ export interface LocalComic {
     cover: string;
 }
 
-/** 扁平导入（旧布局，或用户自己挑的文件夹）的作品 source：它们不在任何源里，没有在线作品页。 */
+/** 扁平布局（旧下载）的作品 source：它们不在任何源里，没有在线作品页。 */
 export const FLAT_SOURCE = "local";
 
 /** 一部已下载作品的元数据（`read_comic_meta`）；没有这份元数据返回 null。 */
@@ -86,7 +86,7 @@ export const mojuanVersion = () => invoke<string>("mojuan_version");
 export const setSystemBars = (opts: { hidden: boolean; lightIcons: boolean }) =>
     invoke<void>("set_system_bars", opts);
 
-/** 扫描下载目录/本地文件夹：`[{source, comicId, chapterCount, title, cover}]`。 */
+/** 扫描下载目录：`[{source, comicId, chapterCount, title, cover}]`。 */
 export const scanLocal = (dir: string) =>
     invoke<string>("scan_local", { dir }).then(
         (json) => JSON.parse(json) as LocalComic[],

@@ -1,6 +1,6 @@
 # 墨卷 · Tauri
 
-墨卷漫画阅读器（macOS / Windows / Linux / Android / iOS），基于 **Tauri v2** + **React**（Vite web 前端）。Rust 核心 `mojuan-core` 承载爬虫引擎（源文档 + 源运行时）与 WebDAV / 下载 / 本地扫描 / 图片缓存，数据层为真实图源链路，不含 mock。
+墨卷漫画阅读器（macOS / Windows / Linux / Android / iOS），基于 **Tauri v2** + **React**（Vite web 前端）。Rust 核心 `mojuan-core` 承载爬虫引擎（源文档 + 源运行时）与 WebDAV / 下载 / 本地文件 IO / 图片缓存，数据层为真实图源链路，不含 mock。
 
 > **2026-08 迁移**：原 Lynx（Sparkling）工程已按 big-bang 决定删除（`sparkling-cimoc/`、根 `src/ android/ dist/`），迁移决策轨迹见 wayfinder 地图：https://github.com/fw6/mojuan/issues/2
 >
@@ -15,7 +15,7 @@ pnpm dev
 
 - 前端：`apps/mojuan/src/`（React + Vite + HashRouter）
 - 壳与命令层：`apps/mojuan/src-tauri/`（Rust，tauri command 接线 mojuan-core）
-- 核心：`crates/mojuan-core/`（爬虫 / WebDAV / 下载 / 本地扫描 / 图片缓存）
+- 核心：`crates/mojuan-core/`（爬虫 / WebDAV / 下载 / 本地文件 IO / 图片缓存）
 - 更新通道：`apps/updater/`（Cloudflare Worker，运维见 `apps/updater/README.md`）
 
 ## 图片加载

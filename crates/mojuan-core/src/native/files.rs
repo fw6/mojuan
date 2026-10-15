@@ -1,7 +1,7 @@
 //! 本地下载 / 文件 IO（移植自旧 DownloadModule / LocalModule）。
 //! 目录路径由原生侧传入（Android getExternalFilesDir/download，iOS Documents/download）。
 //! 下载布局（wayfinder #19 定案）：`<dir>/<source>/<comicId>/chapter_<n>/<page>.<ext>`；
-//! 「本地」tab 扫描兼容旧扁平布局（顶层目录直接含 chapter_* → source 记 "local"）。
+//! 扫描兼容旧扁平布局（顶层目录直接含 chapter_* → source 记 "local"）。
 
 use crate::crawler::http;
 use crate::native::comic_meta;
@@ -130,8 +130,8 @@ fn chapter_count(comic_path: &Path) -> i64 {
 /// 扫描本地已下载漫画：`[{source, comicId, chapterCount, title, cover}]`。
 /// 兼容两种布局：命名空间 `<dir>/<source>/<comicId>/…` 与旧扁平 `<dir>/<comicId>/…`
 /// （扁平条目 source = "local"，wayfinder #19）。
-/// 标题与封面来自该作品目录下的 `comic.json`（下载入队时写入）；旧下载与用户自己的
-/// 文件夹没有这份元数据，两个字段为空串，消费方回落到 comicId。
+/// 标题与封面来自该作品目录下的 `comic.json`（下载入队时写入）；旧下载没有这份
+/// 元数据，两个字段为空串，消费方回落到 comicId。
 pub fn scan_local(dir: &str) -> String {
     let base = Path::new(dir);
     let mut arr = Vec::new();

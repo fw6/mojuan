@@ -53,10 +53,6 @@ vi.mock("../lib/sources", () => ({
     sourceTitle: (id: string) => id,
 }));
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-    open: vi.fn(),
-}));
-
 import { scanLocal, deleteDownloaded, listDownloaded, readComicMeta } from "../api";
 import { getFavorites, removeFavorite } from "../lib/storage/favorites";
 import { getFollowStates, removeFollowState } from "../lib/storage/follow";
@@ -64,7 +60,6 @@ import { getProgressAll } from "../lib/storage/progress";
 import { runFollowCheckNow } from "../lib/follow-check";
 import { getHistory, removeHistory } from "../lib/storage/history";
 import { getSettings } from "../lib/storage/settings";
-import { open } from "@tauri-apps/plugin-dialog";
 
 const mockedScan = vi.mocked(scanLocal);
 const mockedDeleteDownloaded = vi.mocked(deleteDownloaded);
@@ -79,7 +74,6 @@ const mockedRunCheck = vi.mocked(runFollowCheckNow);
 const mockedHistory = vi.mocked(getHistory);
 const mockedRemoveHistory = vi.mocked(removeHistory);
 const mockedSettings = vi.mocked(getSettings);
-const mockedOpen = vi.mocked(open);
 
 function comic(id: string, source = "mangadex"): Comic {
     return {
@@ -142,6 +136,13 @@ afterEach(() => {
 });
 
 describe("书架页的删除", () => {
+    it("书架只有历史、收藏、下载三个 tab", async () => {
+        renderLibrary();
+        await waitFor(() => expect(screen.getByText("作品 a")).toBeTruthy());
+        expect(screen.getAllByRole("tab")).toHaveLength(3);
+        expect(screen.queryByRole("tab", { name: /本地文件/ })).toBeNull();
+    });
+
     it("历史列表来自历史域，一行一部作品", async () => {
         renderLibrary();
         await waitFor(() => expect(screen.getByText("作品 a")).toBeTruthy());
@@ -299,37 +300,6 @@ describe("书架页的删除", () => {
         fireEvent.click(screen.getByText("作品甲").closest("a")!);
 
         await waitFor(() => expect(screen.getByText("作品详情")).toBeTruthy());
-    });
-
-    it("扁平导入的本地漫画没有在线详情可进，卡片不给详情链接", async () => {
-        mockedOpen.mockResolvedValue("/mock/local");
-        mockedScan.mockResolvedValue([
-            {
-                source: "local",
-                comicId: "c9",
-                chapterCount: 1,
-                title: "本地作品",
-                cover: "",
-            },
-        ]);
-        renderLibrary();
-        await waitFor(() => expect(screen.getByText("作品 a")).toBeTruthy());
-
-        fireEvent.click(screen.getByRole("tab", { name: /本地文件/ }));
-        fireEvent.click(screen.getByRole("button", { name: /选择文件夹/ }));
-
-        await waitFor(() => expect(screen.getByText("本地作品")).toBeTruthy());
-        expect(screen.getByText("本地作品").closest("a")).toBeNull();
-    });
-
-    it("本地文件 tab 不提供删除（扫的是用户自己挑的文件夹）", async () => {
-        renderLibrary();
-        await waitFor(() => expect(screen.getByText("作品 a")).toBeTruthy());
-
-        fireEvent.click(screen.getByRole("tab", { name: /本地文件/ }));
-        await waitFor(() => expect(screen.getByText("选一个存着漫画的文件夹")).toBeTruthy());
-
-        expect(screen.queryByRole("button", { name: "删除", hidden: true })).toBeNull();
     });
 });
 
