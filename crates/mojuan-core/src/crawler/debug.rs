@@ -46,7 +46,8 @@ pub fn run(document: &str, op: &str, payload: &str, hidden: &str) -> String {
     let (out, ok) = script::execute(&observer, &script, doc.render_channel, op, payload);
 
     let data = if ok {
-        serde_json::from_str(&out).unwrap_or(Value::Null)
+        // execute 成功时 out 是 parse 输出的序列化，必然是合法 JSON；序列化失败会破坏这个不变量
+        serde_json::from_str(&out).expect("script::execute 成功时返回的是 parse 输出的序列化")
     } else {
         Value::Null
     };
