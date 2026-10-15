@@ -3,6 +3,7 @@ import { ChevronDown } from "lucide-react";
 import {
     crawlDebug,
     type DebugHidden,
+    type DebugHiddenEntry,
     type DebugRun,
     type DebugStep,
 } from "../api";
@@ -71,7 +72,7 @@ const NO_VALUES: Record<ParamName, string> = {
     chapterIndex: "",
 };
 
-/** 会话隐藏值的初值：一次运行都不带（多步请求链的累积见后续工单）。 */
+/** 会话隐藏值的初值：一次运行都没跑过，会话是空的。 */
 const NO_HIDDEN: DebugHidden = {};
 
 /** 响应体在步骤日志里的预览长度；更长的部分由「展开全文」按需渲染。 */
@@ -108,6 +109,8 @@ export default function SourceDebugger() {
     });
     const [running, setRunning] = useState(false);
     const [result, setResult] = useState<DebugRun | null>(null);
+    // 会话累积的隐藏值：一次运行交出来的值留下来，下一次运行带进去（与文档版本无关）
+    const [hidden, setHidden] = useState<DebugHidden>(NO_HIDDEN);
     // 命令本身报错（不是运行记录里的失败）：Rust 侧抛出的原因
     const [thrown, setThrown] = useState<string | null>(null);
 
@@ -117,9 +120,15 @@ export default function SourceDebugger() {
         setResult(null);
         setThrown(null);
         try {
-            setResult(
-                await crawlDebug(document, op, buildPayload(op, values), NO_HIDDEN),
+            const record = await crawlDebug(
+                document,
+                op,
+                buildPayload(op, values),
+                hidden,
             );
+            setResult(record);
+            // core 交回的是一次运行之后的完整快照，会话就按它更新
+            setHidden(record.hidden);
         } catch (e) {
             setThrown(e instanceof Error ? e.message : String(e));
         } finally {
@@ -197,6 +206,13 @@ export default function SourceDebugger() {
                                 {running ? "运行中…" : "运行"}
                             </Button>
                         </div>
+
+                        <div className="mt-4 border-t border-border pt-3">
+                            <SessionHidden
+                                hidden={hidden}
+                                onClear={() => setHidden(NO_HIDDEN)}
+                            />
+                        </div>
                     </Panel>
 
                     <div className="mt-4 flex flex-col gap-4">
@@ -211,6 +227,52 @@ export default function SourceDebugger() {
             </div>
         </div>
     );
+}
+
+/** 会话累积的隐藏值：一次运行交出来的值留下来，下一次运行作为入参带进去。 */
+function SessionHidden({
+    hidden,
+    onClear,
+}: {
+    hidden: DebugHidden;
+    onClear: () => void;
+}) {
+    const entries = hiddenEntries(hidden);
+    return (
+        <div role="group" aria-label="会话隐藏值" className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-3">
+                <span className="text-xs text-muted-foreground">会话隐藏值</span>
+                <Button variant="ghost" size="sm" onClick={onClear}>
+                    清空会话缓存
+                </Button>
+            </div>
+            {entries.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                    还没有累积的隐藏值：跑一次产出隐藏值的 op，它会在下一次运行里带回去
+                </p>
+            ) : (
+                entries.map((entry) => (
+                    <div
+                        key={`${entry.name}:${entry.key}`}
+                        className="break-all font-mono text-xs text-foreground"
+                    >
+                        {`${entry.name}[${entry.key}] = ${entry.value}`}
+                    </div>
+                ))
+            )}
+        </div>
+    );
+}
+
+/** 会话快照摊平成条目：名 → 键 → 值（core 交回的顺序就是名字与键排序后的）。 */
+function hiddenEntries(hidden: DebugHidden): DebugHiddenEntry[] {
+    const entries: DebugHiddenEntry[] = [];
+    for (const [name, byKey] of Object.entries(hidden)) {
+        for (const [key, value] of Object.entries(byKey)) {
+            entries.push({ name, key, value });
+        }
+    }
+    return entries;
 }
 
 /** 一次运行的记录：结论 + 步骤日志。 */

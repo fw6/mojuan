@@ -4,7 +4,7 @@ import { MemoryRouter, useNavigate } from "react-router-dom";
 import SourceDebugger from "./SourceDebugger";
 import type { DebugRun } from "../api";
 
-// seam：源调试台页面。测的是页面的外部行为——编辑器里的文档、选的 op 与填的参数
+// seam：源调试台页面。测的是页面的外部行为——编辑器里的文档、选的 op、填的参数与会话隐藏值
 // 交给 crawl_debug，运行记录按步骤渲染出来，失败时说清停在哪一步。
 // 命令边界在 ../api（与仓库里其它 screens 测试同一形状）。
 
@@ -64,6 +64,12 @@ function searchRun(): DebugRun {
 /** 跑一次（默认 op 是 categories）。 */
 function run() {
     fireEvent.click(screen.getByRole("button", { name: "运行" }));
+}
+
+/** 跑一次并等它跑完：运行中的按钮叫「运行中…」，回到「运行」就是这一次结束了。 */
+async function runAndSettle() {
+    run();
+    await waitFor(() => screen.getByRole("button", { name: "运行" }));
 }
 
 /** 一步的内容区（折叠按钮所在的那个步骤块）。 */
@@ -321,6 +327,164 @@ describe("源调试台的参数输入", () => {
                 { comicId: "demo-9" },
                 {},
             ),
+        );
+    });
+});
+
+describe("源调试台的会话隐藏值", () => {
+    /** 一次产出隐藏值的 detail 运行：详情页交出系列 URL，键是漫画 id。 */
+    function detailRun(): DebugRun {
+        return {
+            ok: true,
+            data: { id: "demo-1", title: "甲" },
+            hidden: { seriesUrl: { "demo-1": "http://example.com/series/1" } },
+            steps: [
+                { stage: "validate", ok: true },
+                {
+                    stage: "parse",
+                    data: { id: "demo-1" },
+                    hidden: [
+                        {
+                            name: "seriesUrl",
+                            key: "demo-1",
+                            value: "http://example.com/series/1",
+                        },
+                    ],
+                },
+            ],
+            error: null,
+        };
+    }
+
+    /** 一次消费隐藏值的 images 运行：入参带进来的系列 URL 仍在返回的快照里。 */
+    function imagesRun(): DebugRun {
+        return {
+            ok: true,
+            data: ["http://example.com/1.jpg"],
+            hidden: { seriesUrl: { "demo-1": "http://example.com/series/1" } },
+            steps: [
+                { stage: "validate", ok: true },
+                { stage: "parse", data: ["http://example.com/1.jpg"], hidden: [] },
+            ],
+            error: null,
+        };
+    }
+
+    it("一次运行产出的隐藏值记进会话，下一次运行带回去", async () => {
+        mockedDebug.mockResolvedValueOnce(detailRun());
+        mockedDebug.mockResolvedValueOnce(imagesRun());
+        render(<SourceDebugger />);
+
+        fireEvent.click(screen.getByRole("button", { name: "detail" }));
+        fireEvent.change(screen.getByLabelText("comicId"), {
+            target: { value: "demo-1" },
+        });
+        await runAndSettle();
+
+        fireEvent.click(screen.getByRole("button", { name: "images" }));
+        fireEvent.change(screen.getByLabelText("chapterIndex"), {
+            target: { value: "0" },
+        });
+        await runAndSettle();
+
+        // 第一次运行还没有会话隐藏值可带
+        expect(mockedDebug).toHaveBeenNthCalledWith(
+            1,
+            "",
+            "detail",
+            { comicId: "demo-1" },
+            {},
+        );
+        // 第二次运行带上了第一次产出的值
+        expect(mockedDebug).toHaveBeenNthCalledWith(
+            2,
+            "",
+            "images",
+            { comicId: "demo-1", chapterIndex: 0 },
+            { seriesUrl: { "demo-1": "http://example.com/series/1" } },
+        );
+    });
+
+    it("页面显示当前会话累积的隐藏值：名字、键、值", async () => {
+        mockedDebug.mockResolvedValue(detailRun());
+        render(<SourceDebugger />);
+
+        // 一次运行都没跑过：会话是空的
+        const empty = screen.getByRole("group", { name: "会话隐藏值" });
+        expect(within(empty).queryByText(/seriesUrl/)).toBeNull();
+
+        fireEvent.click(screen.getByRole("button", { name: "detail" }));
+        fireEvent.change(screen.getByLabelText("comicId"), {
+            target: { value: "demo-1" },
+        });
+        await runAndSettle();
+
+        const session = screen.getByRole("group", { name: "会话隐藏值" });
+        expect(
+            within(session).getByText(
+                "seriesUrl[demo-1] = http://example.com/series/1",
+            ),
+        ).toBeTruthy();
+    });
+
+    it("「清空会话缓存」清空累积值，之后一次运行的入参为空", async () => {
+        mockedDebug.mockResolvedValue(detailRun());
+        render(<SourceDebugger />);
+        fireEvent.click(screen.getByRole("button", { name: "detail" }));
+        fireEvent.change(screen.getByLabelText("comicId"), {
+            target: { value: "demo-1" },
+        });
+        await runAndSettle();
+        expect(
+            within(screen.getByRole("group", { name: "会话隐藏值" })).getByText(
+                "seriesUrl[demo-1] = http://example.com/series/1",
+            ),
+        ).toBeTruthy();
+
+        fireEvent.click(
+            screen.getByRole("button", { name: "清空会话缓存" }),
+        );
+        expect(
+            within(screen.getByRole("group", { name: "会话隐藏值" })).queryByText(
+                /seriesUrl/,
+            ),
+        ).toBeNull();
+
+        await runAndSettle();
+        expect(mockedDebug).toHaveBeenLastCalledWith(
+            "",
+            "detail",
+            { comicId: "demo-1" },
+            {},
+        );
+    });
+
+    it("改编辑器里的文档不清空会话（隐藏值按名字与键存，与文档版本无关）", async () => {
+        mockedDebug.mockResolvedValue(detailRun());
+        const { container } = render(<SourceDebugger />);
+        fireEvent.click(screen.getByRole("button", { name: "detail" }));
+        fireEvent.change(screen.getByLabelText("comicId"), {
+            target: { value: "demo-1" },
+        });
+        await runAndSettle();
+
+        // 在编辑器里敲一次回车：文档从空变成一行空行
+        const content = container.querySelector<HTMLElement>(".cm-content");
+        if (!content) throw new Error("编辑器没有渲染出内容区");
+        fireEvent.keyDown(content, { key: "Enter", code: "Enter", keyCode: 13 });
+
+        expect(
+            within(screen.getByRole("group", { name: "会话隐藏值" })).getByText(
+                "seriesUrl[demo-1] = http://example.com/series/1",
+            ),
+        ).toBeTruthy();
+
+        await runAndSettle();
+        expect(mockedDebug).toHaveBeenLastCalledWith(
+            "\n",
+            "detail",
+            { comicId: "demo-1" },
+            { seriesUrl: { "demo-1": "http://example.com/series/1" } },
         );
     });
 });
