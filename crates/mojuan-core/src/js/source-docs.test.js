@@ -702,17 +702,21 @@ describe("nnhanman 文档", () => {
         expect(out.comic.lastChapter).toBe("第5話");
     });
 
-    it("images 只取带 data-index 的图（站内 logo 与统计像素不带）", () => {
+    it("images 只取带 data-index 的图（站内 logo 与统计像素不带），重复槽位只取第一次", () => {
         const urls = runSingle(
             nnhanman,
             "images",
             { comicId: "nnhanman-zui-bang-de-ta", chapterIndex: 85989 },
             NN_CHAPTER,
         ).data;
-        expect(urls.length).toBeGreaterThan(0);
-        for (const u of urls) {
-            expect(u).toContain("new.niaopic.com");
-        }
+        // 站点会把同一张图列在两个槽位上（第 4、5 个槽位就是重复），阅读器照单显示就会出现
+        // 同一张图连着两次，所以取列表时按 url 去重、保留第一次出现的顺序
+        expect(urls).toEqual([
+            "https://new.niaopic.com/2026092914/20260929144622267.jpg",
+            "https://new.niaopic.com/2026092914/20260929144623310.jpg",
+            "https://new.niaopic.com/2026092914/20260929144624461.jpg",
+            "https://new.niaopic.com/2026092914/20260929144917909.jpg",
+        ]);
     });
 });
 
