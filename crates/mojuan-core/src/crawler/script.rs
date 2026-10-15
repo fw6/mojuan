@@ -15,22 +15,113 @@ use serde_json::{json, Map, Value};
 /// 单个 op 的请求步骤上限（防文档写出没有尽头的请求链）。
 const MAX_STEPS: usize = 8;
 
+/// op 执行循环的可观察接口：隐藏值存储、错误上报、步骤记录。
+///
+/// 已装源路径的实现（[`EntryObserver`]）沿用该源的错误行与隐藏值缓存、丢弃步骤记录；
+/// 调试路径的实现把步骤收集起来（见 `crawl_debug`）。
+pub trait RunObserver {
+    /// 交给运行时的 `ctx.hidden`（`{名: {键: 值}}`）。
+    fn hidden_ctx(&self) -> Value;
+    /// 写入一条隐藏值。
+    fn put_hidden(&self, name: &str, key: &str, value: &str);
+    /// 上报一次失败：`stage` 是 plan / fetch / parse。
+    fn record_error(&self, stage: &str, message: &str);
+    /// op 成功时清除最近错误。
+    fn clear_error(&self);
+    /// 记录一步。
+    fn record_step(&self, step: Step);
+}
+
+/// 一次运行走过的一步（调试台按顺序展示）。
+#[derive(Debug)]
+pub enum Step {
+    /// 运行时为一个请求步骤求出的 URL 与请求头。
+    Plan {
+        name: String,
+        url: String,
+        headers: Vec<(String, String)>,
+    },
+    /// 一次抓取拿到的响应体。
+    Fetch {
+        name: String,
+        url: String,
+        body: String,
+    },
+    /// parse 的输出（数据与运行时交出的隐藏值）。
+    Parse { data: Value, hidden: Value },
+}
+
+impl Step {
+    /// 阶段名（plan / fetch / parse）。
+    pub fn stage(&self) -> &'static str {
+        match self {
+            Step::Plan { .. } => "plan",
+            Step::Fetch { .. } => "fetch",
+            Step::Parse { .. } => "parse",
+        }
+    }
+}
+
 /// 跑一个 op。第二个返回值 = 本次是否成功（供结果缓存判定，见 `crawler::crawl`）。
 /// 失败按协议返回空 JSON 并把原因记进该源的错误行。
 pub fn run(entry: &Entry, op: &str, payload: &str) -> (String, bool) {
-    let script = registry::script_for(entry);
-    let ctx = ctx_for(entry);
+    let observer = EntryObserver { entry, op };
+    execute(
+        &observer,
+        &registry::script_for(entry),
+        entry.doc.render_channel,
+        op,
+        payload,
+    )
+}
+
+/// 已装源（生产路径）的观察者：错误写进该源的错误行、隐藏值进缓存、步骤丢弃。
+struct EntryObserver<'a> {
+    entry: &'a Entry,
+    op: &'a str,
+}
+
+impl RunObserver for EntryObserver<'_> {
+    fn hidden_ctx(&self) -> Value {
+        self.entry.hidden_ctx()
+    }
+
+    fn put_hidden(&self, name: &str, key: &str, value: &str) {
+        self.entry.put_hidden(name, key, value);
+    }
+
+    fn record_error(&self, stage: &str, message: &str) {
+        self.entry.record(&format!("{stage}({}): {message}", self.op));
+    }
+
+    fn clear_error(&self) {
+        self.entry.clear();
+    }
+
+    fn record_step(&self, _step: Step) {}
+}
+
+/// 执行循环：plan → fetch → … → parse。隐藏值、错误、步骤都经 `observer` 上报；
+/// 脚本与渲染通道由调用方给定（已装源走 [`run`]，调试运行另给一份文档原文）。
+pub fn execute(
+    observer: &dyn RunObserver,
+    script: &str,
+    render_channel: bool,
+    op: &str,
+    payload: &str,
+) -> (String, bool) {
+    let ctx = json!({ "hidden": observer.hidden_ctx() });
     let mut responses = Map::new();
 
     for _ in 0..MAX_STEPS {
         let req = request_json(op, payload, &ctx, &responses);
-        let step = match crate::js::call(&script, "plan", &req) {
+        let step = match crate::js::call(script, "plan", &req) {
             Ok(s) => s,
-            Err(e) => return fail(entry, op, "plan", &e),
+            Err(e) => return fail(observer, op, "plan", &e),
         };
         let step: Value = match serde_json::from_str(&step) {
             Ok(v) => v,
-            Err(e) => return fail(entry, op, "plan", &e.to_string()),
+            Err(e) => return fail(observer, op, "plan", &e.to_string()),
         };
         // 模板求值为空（如缺 ctx 派生值）：按空结果返回，不算成功，不记错误
         if step.get("abort").and_then(Value::as_bool).unwrap_or(false) {
@@ -42,29 +133,44 @@ pub fn run(entry: &Entry, op: &str, payload: &str) -> (String, bool) {
         let name = step.get("name").and_then(Value::as_str).unwrap_or("");
         let url = step.get("url").and_then(Value::as_str).unwrap_or("");
         if name.is_empty() || url.is_empty() {
-            return fail(entry, op, "plan", "请求步骤缺 name 或 url");
+            return fail(observer, op, "plan", "请求步骤缺 name 或 url");
         }
         let headers = header_pairs(step.get("headers"));
-        match fetch(entry, url, &headers) {
+        observer.record_step(Step::Plan {
+            name: name.to_string(),
+            url: url.to_string(),
+            headers: headers
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect(),
+        });
+        match fetch(render_channel, url, &headers) {
             Ok(body) => {
+                observer.record_step(Step::Fetch {
+                    name: name.to_string(),
+                    url: url.to_string(),
+                    body: body.clone(),
+                });
                 responses.insert(name.to_string(), Value::String(body));
             }
-            Err(e) => return fail(entry, op, "fetch", &e),
+            Err(e) => return fail(observer, op, "fetch", &e),
         }
     }
 
     let req = request_json(op, payload, &ctx, &responses);
-    let out = match crate::js::call(&script, "parse", &req) {
+    let out = match crate::js::call(script, "parse", &req) {
         Ok(o) => o,
-        Err(e) => return fail(entry, op, "parse", &e),
+        Err(e) => return fail(observer, op, "parse", &e),
     };
     let envelope: Value = match serde_json::from_str(&out) {
         Ok(v) => v,
-        Err(e) => return fail(entry, op, "parse", &e.to_string()),
+        Err(e) => return fail(observer, op, "parse", &e.to_string()),
     };
-    store_hidden(entry, envelope.get("hidden"));
-    entry.clear();
     let data = envelope.get("data").cloned().unwrap_or_else(|| json!([]));
+    let hidden = envelope.get("hidden").cloned().unwrap_or_else(|| json!([]));
+    store_hidden(observer, envelope.get("hidden"));
+    observer.record_step(Step::Parse { data: data.clone(), hidden });
+    observer.clear_error();
     (data.to_string(), true)
 }
 
@@ -86,8 +192,8 @@ pub fn is_document_op(op: &str) -> bool {
     OPS.contains(&op)
 }
 
-fn fail(entry: &Entry, op: &str, stage: &str, message: &str) -> (String, bool) {
-    entry.record(&format!("{stage}({op}): {message}"));
+fn fail(observer: &dyn RunObserver, op: &str, stage: &str, message: &str) -> (String, bool) {
+    observer.record_error(stage, message);
     (empty_for(op), false)
 }
 
@@ -98,11 +204,6 @@ fn empty_for(op: &str) -> String {
     } else {
         "[]".into()
     }
-}
-
-/// 交给运行时的 ctx：目前只有宿主侧的隐藏值缓存（`{名: {键: 值}}`）。
-fn ctx_for(entry: &Entry) -> Value {
-    json!({ "hidden": entry.hidden_ctx() })
 }
 
 fn request_json(op: &str, payload: &str, ctx: &Value, responses: &Map<String, Value>) -> String {
@@ -127,16 +228,16 @@ fn header_pairs(headers: Option<&Value>) -> Vec<(&str, String)> {
 }
 
 /// 抓取原始响应体：声明了渲染通道的源整源经隐藏 webview 取页面。
-fn fetch(entry: &Entry, url: &str, headers: &[(&str, String)]) -> Result<String, String> {
-    if entry.doc.render_channel {
+fn fetch(render_channel: bool, url: &str, headers: &[(&str, String)]) -> Result<String, String> {
+    if render_channel {
         return render::fetch(url);
     }
     let borrowed: Vec<(&str, &str)> = headers.iter().map(|(k, v)| (*k, v.as_str())).collect();
     http::get_text(url, &borrowed)
 }
 
-/// 把运行时交出来的隐藏值写进该源的缓存（供后续 op 经 ctx 取用）。
-fn store_hidden(entry: &Entry, hidden: Option<&Value>) {
+/// 把运行时交出来的隐藏值写进缓存（供后续 op 经 ctx 取用）。
+fn store_hidden(observer: &dyn RunObserver, hidden: Option<&Value>) {
     let Some(items) = hidden.and_then(Value::as_array) else {
         return;
     };
@@ -145,7 +246,7 @@ fn store_hidden(entry: &Entry, hidden: Option<&Value>) {
         let key = item.get("key").and_then(Value::as_str).unwrap_or("");
         let value = item.get("value").and_then(Value::as_str).unwrap_or("");
         if !name.is_empty() && !key.is_empty() && !value.is_empty() {
-            entry.put_hidden(name, key, value);
+            observer.put_hidden(name, key, value);
         }
     }
 }
@@ -283,6 +384,103 @@ mod tests {
         assert!(!is_document_op("bogus"));
         assert!(!is_document_op("cache_dump"));
         assert_eq!(schema_version(), 1);
+    }
+
+    /// 一个测试用的观察者：把步骤按顺序收集，隐藏值与错误各自记下。
+    #[derive(Default)]
+    struct Recorder {
+        steps: std::sync::Mutex<Vec<Step>>,
+        errors: std::sync::Mutex<Vec<(String, String)>>,
+        hidden: std::sync::Mutex<std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>>,
+    }
+
+    impl RunObserver for Recorder {
+        fn hidden_ctx(&self) -> Value {
+            let store = self.hidden.lock().unwrap();
+            let mut out = Map::new();
+            for (name, by_key) in store.iter() {
+                let mut keys = Map::new();
+                for (key, value) in by_key.iter() {
+                    keys.insert(key.clone(), Value::String(value.clone()));
+                }
+                out.insert(name.clone(), Value::Object(keys));
+            }
+            Value::Object(out)
+        }
+
+        fn put_hidden(&self, name: &str, key: &str, value: &str) {
+            self.hidden
+                .lock()
+                .unwrap()
+                .entry(name.to_string())
+                .or_default()
+                .insert(key.to_string(), value.to_string());
+        }
+
+        fn record_error(&self, stage: &str, message: &str) {
+            self.errors
+                .lock()
+                .unwrap()
+                .push((stage.to_string(), message.to_string()));
+        }
+
+        fn clear_error(&self) {
+            self.errors.lock().unwrap().clear();
+        }
+
+        fn record_step(&self, step: Step) {
+            self.steps.lock().unwrap().push(step);
+        }
+    }
+
+    /// 用一个测试用的观察者驱动一次真实运行：步骤按 plan → fetch → parse 的顺序被收集。
+    #[test]
+    fn execute_collects_steps_in_order() {
+        let _guard = registry::test_lock();
+        let port = spawn_mock(LIST_HTML);
+        let doc = DOC.replace("https://example.com", &format!("http://127.0.0.1:{port}"));
+        let script = format!("var DOC = {};\n{}", doc, crate::js::runtime::source());
+        let recorder = Recorder::default();
+
+        let (out, ok) = execute(&recorder, &script, false, "search", r#"{"keyword":"x"}"#);
+        assert!(ok, "out = {out}");
+
+        let steps = recorder.steps.lock().unwrap();
+        let stages: Vec<&str> = steps.iter().map(Step::stage).collect();
+        assert_eq!(stages, vec!["plan", "fetch", "parse"], "步骤应按顺序收集");
+
+        match &steps[0] {
+            Step::Plan { name, url, .. } => {
+                assert_eq!(name, "list");
+                assert!(url.contains("/search?q=x"), "url = {url}");
+            }
+            other => panic!("第一步应为 plan，得到 {other:?}"),
+        }
+        match &steps[1] {
+            Step::Fetch { name, body, .. } => {
+                assert_eq!(name, "list");
+                assert!(body.contains(r#"div class="item""#), "body = {body}");
+            }
+            other => panic!("第二步应为 fetch，得到 {other:?}"),
+        }
+        match &steps[2] {
+            Step::Parse { data, hidden } => {
+                assert_eq!(data[0]["id"], "demo-1");
+                assert_eq!(hidden[0]["name"], "seriesUrl");
+            }
+            other => panic!("第三步应为 parse，得到 {other:?}"),
+        }
+        drop(steps);
+
+        // 隐藏值经观察者写入（值来自响应里的 data-href）
+        assert_eq!(
+            recorder.hidden_ctx()["seriesUrl"]["demo-1"],
+            "https://example.com/1"
+        );
+        assert!(
+            recorder.errors.lock().unwrap().is_empty(),
+            "成功运行不应上报错误"
+        );
     }
 
     #[test]
