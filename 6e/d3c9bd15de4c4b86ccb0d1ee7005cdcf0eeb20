@@ -1,0 +1,23 @@
+crates/mojuan-core/src/js/sources/nnhanman.json
+  s_8a7ceda81bcd60::t_19241d58353266 112-114
+crates/mojuan-core/tests/fixtures/nnhanman-chapter.html
+  s_8a7ceda81bcd60::t_3a5858e56dc405 12-14
+crates/mojuan-core/src/js/source-docs.test.js
+  s_8a7ceda81bcd60::t_0b2ce9dee555e7 705,712-719
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.49-trip",
+  "base_commit_sha": "6ed3c9bd15de4c4b86ccb0d1ee7005cdcf0eeb20",
+  "prompts": {},
+  "sessions": {
+    "s_8a7ceda81bcd60": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_d7eb1efb-9227-43fe-858e-8b34d1a9e83b",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
