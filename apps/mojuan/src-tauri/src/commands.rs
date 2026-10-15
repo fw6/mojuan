@@ -42,6 +42,23 @@ pub async fn crawl(
     Ok(out)
 }
 
+/// 源调试台的一次运行：文档原文、op、payload 与会话隐藏值快照进，运行记录 JSON 出。
+/// 走真实的网络、请求头与渲染通道，与 `crawl` 同一条路；但不写结果缓存、不碰任何已装源，
+/// 所以不追加 sources.log。
+#[tauri::command]
+pub async fn crawl_debug(
+    document: String,
+    op: String,
+    payload: String,
+    hidden: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        mojuan_core::crawl_debug(&document, &op, &payload, &hidden)
+    })
+    .await
+    .map_err(|e| format!("调试运行异常终止: {e}"))
+}
+
 /// 读取抓取结果缓存（不触发网络）。命中返回 `{"data": <结果>, "fetchedAt": <unix_ms>}`，
 /// 未命中返回 `null`。前端加载列表/详情的 stale-while-revalidate 前半段：
 /// 先渲染缓存，再调 crawl 拉最新并回写。

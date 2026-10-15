@@ -47,6 +47,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::crawl,
+            commands::crawl_debug,
             commands::crawl_cached,
             commands::sync_sources,
             commands::source_schema,

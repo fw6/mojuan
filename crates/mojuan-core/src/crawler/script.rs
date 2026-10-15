@@ -41,11 +41,12 @@ pub enum Step {
         url: String,
         headers: Vec<(String, String)>,
     },
-    /// 一次抓取拿到的响应体。
+    /// 一次抓取拿到的响应体；抓取失败时 `error` 带上原因（调试台据此显示失败停在这一步）。
     Fetch {
         name: String,
         url: String,
         body: String,
+        error: Option<String>,
     },
     /// parse 的输出（数据与运行时交出的隐藏值）。
     Parse { data: Value, hidden: Value },
@@ -150,10 +151,19 @@ pub fn execute(
                     name: name.to_string(),
                     url: url.to_string(),
                     body: body.clone(),
+                    error: None,
                 });
                 responses.insert(name.to_string(), Value::String(body));
             }
-            Err(e) => return fail(observer, op, "fetch", &e),
+            Err(e) => {
+                observer.record_step(Step::Fetch {
+                    name: name.to_string(),
+                    url: url.to_string(),
+                    body: String::new(),
+                    error: Some(e.clone()),
+                });
+                return fail(observer, op, "fetch", &e);
+            }
         }
     }
 
@@ -256,6 +266,31 @@ pub fn schema_version() -> u32 {
     SCHEMA_VERSION
 }
 
+/// 本地 mock HTTP 服务：对每个请求返回 `body(端口)` 给出的 HTML，监听一个空闲端口（测试用）。
+/// 响应体按端口拼（页面里的链接指向 mock 自己，供多步请求链使用）。
+#[cfg(test)]
+pub(crate) fn spawn_mock(body: impl Fn(u16) -> String) -> u16 {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let body = body(port);
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            let mut buf = [0u8; 8192];
+            let _ = stream.read(&mut buf).unwrap_or(0);
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(resp.as_bytes());
+            let _ = stream.flush();
+        }
+    });
+    port
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -297,31 +332,10 @@ mod tests {
     }
 
     /// 用本地 mock HTTP 服务跑一次 search：验证 URL、抓取、解析与隐藏值入缓存。
-    fn spawn_mock(body: &'static str) -> u16 {
-        use std::io::{Read, Write};
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        std::thread::spawn(move || {
-            for stream in listener.incoming() {
-                let Ok(mut stream) = stream else { break };
-                let mut buf = [0u8; 8192];
-                let _ = stream.read(&mut buf).unwrap_or(0);
-                let resp = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                    body.len(),
-                    body
-                );
-                let _ = stream.write_all(resp.as_bytes());
-                let _ = stream.flush();
-            }
-        });
-        port
-    }
-
     #[test]
     fn search_runs_end_to_end_against_a_local_server() {
         let _guard = registry::test_lock();
-        let port = spawn_mock(LIST_HTML);
+        let port = spawn_mock(|_| LIST_HTML.to_string());
         let doc = DOC.replace("https://example.com", &format!("http://127.0.0.1:{port}"));
         sync(SyncPayload {
             runtime: None,
@@ -437,7 +451,7 @@ mod tests {
     #[test]
     fn execute_collects_steps_in_order() {
         let _guard = registry::test_lock();
-        let port = spawn_mock(LIST_HTML);
+        let port = spawn_mock(|_| LIST_HTML.to_string());
         let doc = DOC.replace("https://example.com", &format!("http://127.0.0.1:{port}"));
         let script = format!("var DOC = {};\n{}", doc, crate::js::runtime::source());
         let recorder = Recorder::default();

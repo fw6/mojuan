@@ -13,6 +13,7 @@
 //! （cache_dir 为空表示禁用），供 `cached_result` 读取（前端 stale-while-revalidate 的
 //! stale 一侧）；失败结果不写入。缓存键含源文档与运行时版本标识，任一变化即自然失效。
 
+pub mod debug;
 pub mod doc;
 pub mod http;
 pub mod models;
@@ -50,6 +51,12 @@ pub fn cached_result(op: &str, source: &str, payload: &str, cache_dir: &str) -> 
     };
     entry.clear();
     serde_json::json!({ "data": value, "fetchedAt": at }).to_string()
+}
+
+/// 调试运行：给一份文档原文、op、payload 与会话隐藏值快照，跑一次真实取数并返回运行记录。
+/// 与已装源那条路径共用执行循环，但不写结果缓存、不碰注册表里的任何已装源（见 `debug`）。
+pub fn crawl_debug(document: &str, op: &str, payload: &str, hidden: &str) -> String {
+    debug::run(document, op, payload, hidden)
 }
 
 /// 分派：缓存管理 op 由宿主处理，未知 op 按空结果返回，其余交源文档。
