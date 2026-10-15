@@ -916,7 +916,8 @@ function detailOf(spec, e, hidden) {
     collectChapterHidden(spec.chapters.hidden, rows, hidden, comic.id);
   }
   if (spec.hidden) {
-    collectHidden(spec.hidden, [{ comic: comic }], hidden, function (r) { return r.comic.id; });
+    // 详情页的 op 级隐藏值：整页根节点当一行求值（列表级的行带 node/env，这里同样带上）
+    collectHidden(spec.hidden, [{ comic: comic, node: scope, env: ce }], hidden, function (r) { return r.comic.id; });
   }
   return { comic: comic, chapters: chapters };
 }
