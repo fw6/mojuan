@@ -28,8 +28,9 @@ pub trait RunObserver {
     fn record_error(&self, stage: &str, message: &str);
     /// op 成功时清除最近错误。
     fn clear_error(&self);
-    /// 记录一步。
-    fn record_step(&self, step: Step);
+    /// 记录一步。步骤由 `build` 构造：丢弃步骤的实现（已装源）从不调用它，
+    /// 因而不为响应体、解析输出这类大对象付出构造与复制代价。
+    fn record_step(&self, build: &dyn Fn() -> Step);
 }
 
 /// 一次运行走过的一步（调试台按顺序展示）。
@@ -99,7 +100,7 @@ impl RunObserver for EntryObserver<'_> {
         self.entry.clear();
     }
 
-    fn record_step(&self, _step: Step) {}
+    fn record_step(&self, _build: &dyn Fn() -> Step) {}
 }
 
 /// 执行循环：plan → fetch → … → parse。隐藏值、错误、步骤都经 `observer` 上报；
@@ -137,7 +138,7 @@ pub fn execute(
             return fail(observer, op, "plan", "请求步骤缺 name 或 url");
         }
         let headers = header_pairs(step.get("headers"));
-        observer.record_step(Step::Plan {
+        observer.record_step(&|| Step::Plan {
             name: name.to_string(),
             url: url.to_string(),
             headers: headers
@@ -147,7 +148,7 @@ pub fn execute(
         });
         match fetch(render_channel, url, &headers) {
             Ok(body) => {
-                observer.record_step(Step::Fetch {
+                observer.record_step(&|| Step::Fetch {
                     name: name.to_string(),
                     url: url.to_string(),
                     body: body.clone(),
@@ -156,7 +157,7 @@ pub fn execute(
                 responses.insert(name.to_string(), Value::String(body));
             }
             Err(e) => {
-                observer.record_step(Step::Fetch {
+                observer.record_step(&|| Step::Fetch {
                     name: name.to_string(),
                     url: url.to_string(),
                     body: String::new(),
@@ -177,9 +178,12 @@ pub fn execute(
         Err(e) => return fail(observer, op, "parse", &e.to_string()),
     };
     let data = envelope.get("data").cloned().unwrap_or_else(|| json!([]));
-    let hidden = envelope.get("hidden").cloned().unwrap_or_else(|| json!([]));
-    store_hidden(observer, envelope.get("hidden"));
-    observer.record_step(Step::Parse { data: data.clone(), hidden });
+    let hidden = envelope.get("hidden");
+    store_hidden(observer, hidden);
+    observer.record_step(&|| Step::Parse {
+        data: data.clone(),
+        hidden: hidden.cloned().unwrap_or_else(|| json!([])),
+    });
     observer.clear_error();
     (data.to_string(), true)
 }
@@ -497,30 +501,16 @@ mod tests {
     struct Recorder {
         steps: std::sync::Mutex<Vec<Step>>,
         errors: std::sync::Mutex<Vec<(String, String)>>,
-        hidden: std::sync::Mutex<std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>>,
+        hidden: crate::crawler::hidden::HiddenStore,
     }
 
     impl RunObserver for Recorder {
         fn hidden_ctx(&self) -> Value {
-            let store = self.hidden.lock().unwrap();
-            let mut out = Map::new();
-            for (name, by_key) in store.iter() {
-                let mut keys = Map::new();
-                for (key, value) in by_key.iter() {
-                    keys.insert(key.clone(), Value::String(value.clone()));
-                }
-                out.insert(name.clone(), Value::Object(keys));
-            }
-            Value::Object(out)
+            self.hidden.ctx()
         }
 
         fn put_hidden(&self, name: &str, key: &str, value: &str) {
-            self.hidden
-                .lock()
-                .unwrap()
-                .entry(name.to_string())
-                .or_default()
-                .insert(key.to_string(), value.to_string());
+            self.hidden.put(name, key, value);
         }
 
         fn record_error(&self, stage: &str, message: &str) {
@@ -534,8 +524,8 @@ mod tests {
             self.errors.lock().unwrap().clear();
         }
 
-        fn record_step(&self, step: Step) {
-            self.steps.lock().unwrap().push(step);
+        fn record_step(&self, build: &dyn Fn() -> Step) {
+            self.steps.lock().unwrap().push(build());
         }
     }
 

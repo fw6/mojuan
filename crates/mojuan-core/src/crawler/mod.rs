@@ -15,6 +15,7 @@
 
 pub mod debug;
 pub mod doc;
+pub mod hidden;
 pub mod http;
 pub mod models;
 pub mod registry;

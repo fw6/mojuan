@@ -11,6 +11,7 @@
 //! 据此呈现）。`sync` 返回被接受的源的前端事实（显示名与热链对），前端据此填源清单与图片代理。
 
 use crate::crawler::doc::SourceDoc;
+use crate::crawler::hidden::HiddenStore;
 use crate::util::now_ms;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -30,7 +31,7 @@ pub struct Entry {
     pub json: String,
     error: Mutex<Option<(String, u64)>>,
     /// 跨 op 的隐藏值：名 → 键 → 值（webtoons 的系列 URL、baozimh 的章节中转链）。
-    hidden: Mutex<BTreeMap<String, BTreeMap<String, String>>>,
+    hidden: HiddenStore,
 }
 
 impl Entry {
@@ -39,7 +40,7 @@ impl Entry {
             doc,
             json,
             error: Mutex::new(None),
-            hidden: Mutex::new(BTreeMap::new()),
+            hidden: HiddenStore::default(),
         }
     }
 
@@ -59,51 +60,27 @@ impl Entry {
 
     /// 交给运行时的 `ctx.hidden`：`{名: {键: 值}}`。
     pub fn hidden_ctx(&self) -> Value {
-        let store = self.hidden.lock().unwrap();
-        let mut out = serde_json::Map::new();
-        for (name, by_key) in store.iter() {
-            let mut keys = serde_json::Map::new();
-            for (key, value) in by_key.iter() {
-                keys.insert(key.clone(), Value::String(value.clone()));
-            }
-            out.insert(name.clone(), Value::Object(keys));
-        }
-        Value::Object(out)
+        self.hidden.ctx()
     }
 
     /// 写入一条隐藏值。
     pub fn put_hidden(&self, name: &str, key: &str, value: &str) {
-        self.hidden
-            .lock()
-            .unwrap()
-            .entry(name.to_string())
-            .or_default()
-            .insert(key.to_string(), value.to_string());
+        self.hidden.put(name, key, value);
     }
 
     /// 清空隐藏值缓存（测试与「换源」时用）。
     pub fn clear_hidden(&self) {
-        self.hidden.lock().unwrap().clear();
+        self.hidden.clear();
     }
 
     /// 持久化快照（`cache_dump`）。
     pub fn dump_hidden(&self) -> Value {
-        self.hidden_ctx()
+        self.hidden.dump()
     }
 
     /// 回灌持久化快照（`cache_hydrate`）。
     pub fn hydrate_hidden(&self, value: &Value) {
-        let Some(names) = value.as_object() else { return };
-        let mut store = self.hidden.lock().unwrap();
-        for (name, by_key) in names {
-            let Some(keys) = by_key.as_object() else { continue };
-            let slot = store.entry(name.clone()).or_default();
-            for (key, v) in keys {
-                if let Some(s) = v.as_str() {
-                    slot.insert(key.clone(), s.to_string());
-                }
-            }
-        }
+        self.hidden.hydrate(value);
     }
 }
 
@@ -226,7 +203,7 @@ pub fn sync(payload: SyncPayload) -> SyncOutcome {
 /// 在文档更新后仍然有效）。错误行不带：新版本从干净状态开始，旧版本的失败原因不再适用。
 fn carry_state(previous: Option<&Arc<Entry>>, next: &Arc<Entry>) {
     let Some(old) = previous else { return };
-    *next.hidden.lock().unwrap() = old.hidden.lock().unwrap().clone();
+    next.hidden.copy_from(&old.hidden);
 }
 
 /// 按 sourceId 查已装源。

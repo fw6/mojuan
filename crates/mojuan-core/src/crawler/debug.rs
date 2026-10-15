@@ -9,9 +9,9 @@
 //! 只记一步 `validate` 并就地返回，不发起任何请求。
 
 use crate::crawler::doc::SourceDoc;
+use crate::crawler::hidden::HiddenStore;
 use crate::crawler::script::{self, RunObserver, Step};
 use serde_json::{json, Map, Value};
-use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 /// 单个响应体回传给调试台的上限；超出即截断并置 `truncated`。
@@ -20,7 +20,7 @@ const MAX_BODY_BYTES: usize = 512 * 1024;
 /// 跑一次调试取数，返回运行记录 JSON：
 /// `{ok, data, hidden, steps, error}`（见模块说明）。
 pub fn run(document: &str, op: &str, payload: &str, hidden: &str) -> String {
-    let store = hidden_store(hidden);
+    let store = HiddenStore::from_snapshot(hidden);
     let doc = match SourceDoc::parse(document) {
         Ok(doc) => doc,
         Err(reason) => {
@@ -34,7 +34,7 @@ pub fn run(document: &str, op: &str, payload: &str, hidden: &str) -> String {
             return record(
                 false,
                 Value::Null,
-                hidden_ctx(&store),
+                store.ctx(),
                 steps,
                 Some(("validate", message)),
             );
@@ -90,46 +90,11 @@ fn failure_message(stage: &str, op: &str, reason: &str) -> String {
 }
 
 /// 隐藏值存储：名 → 键 → 值（与已装源的缓存同形）。
-type HiddenStore = BTreeMap<String, BTreeMap<String, String>>;
-
-/// 解析前端交回的会话隐藏值快照；不成形的部分按无值处理（与 `cache_hydrate` 一致）。
-fn hidden_store(snapshot: &str) -> HiddenStore {
-    let mut store = HiddenStore::new();
-    let parsed: Value = serde_json::from_str(snapshot).unwrap_or(Value::Null);
-    let Some(names) = parsed.as_object() else {
-        return store;
-    };
-    for (name, by_key) in names {
-        let Some(keys) = by_key.as_object() else {
-            continue;
-        };
-        let slot = store.entry(name.clone()).or_default();
-        for (key, value) in keys {
-            if let Some(s) = value.as_str() {
-                slot.insert(key.clone(), s.to_string());
-            }
-        }
-    }
-    store
-}
-
-/// 存储转成交给运行时的 `ctx.hidden` 形状。
-fn hidden_ctx(store: &HiddenStore) -> Value {
-    let mut out = Map::new();
-    for (name, by_key) in store.iter() {
-        let mut keys = Map::new();
-        for (key, value) in by_key.iter() {
-            keys.insert(key.clone(), Value::String(value.clone()));
-        }
-        out.insert(name.clone(), Value::Object(keys));
-    }
-    Value::Object(out)
-}
-
+///
 /// 调试运行的观察者：步骤按顺序收集，隐藏值只在本次运行的快照里累积，错误记在返回值里。
 struct DebugObserver {
     op: String,
-    hidden: Mutex<HiddenStore>,
+    hidden: HiddenStore,
     steps: Mutex<Vec<Value>>,
     error: Mutex<Option<(String, String)>>,
 }
@@ -138,7 +103,7 @@ impl DebugObserver {
     fn new(op: &str, hidden: HiddenStore) -> Self {
         Self {
             op: op.to_string(),
-            hidden: Mutex::new(hidden),
+            hidden,
             steps: Mutex::new(Vec::new()),
             error: Mutex::new(None),
         }
@@ -147,16 +112,11 @@ impl DebugObserver {
 
 impl RunObserver for DebugObserver {
     fn hidden_ctx(&self) -> Value {
-        hidden_ctx(&self.hidden.lock().unwrap())
+        self.hidden.ctx()
     }
 
     fn put_hidden(&self, name: &str, key: &str, value: &str) {
-        self.hidden
-            .lock()
-            .unwrap()
-            .entry(name.to_string())
-            .or_default()
-            .insert(key.to_string(), value.to_string());
+        self.hidden.put(name, key, value);
     }
 
     fn record_error(&self, stage: &str, message: &str) {
@@ -168,8 +128,11 @@ impl RunObserver for DebugObserver {
         *self.error.lock().unwrap() = None;
     }
 
-    fn record_step(&self, step: Step) {
-        self.steps.lock().unwrap().push(step_json(&self.op, step));
+    fn record_step(&self, build: &dyn Fn() -> Step) {
+        self.steps
+            .lock()
+            .unwrap()
+            .push(step_json(&self.op, build()));
     }
 }
 
