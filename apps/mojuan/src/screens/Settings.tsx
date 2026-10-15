@@ -4,6 +4,7 @@ import {
     CircleCheck,
     CloudDownload,
     CloudUpload,
+    FlaskConical,
     FolderOpen,
     Info,
     RefreshCw,
@@ -21,8 +22,18 @@ import {
     setSettings,
     type Settings as SettingsT,
 } from "../lib/storage/settings";
-import { getOrder, getSources, putRuntime, putSource, removeSource, resyncSources, type SourceEntry } from "../lib/storage/sources";
+import {
+    getOrder,
+    getSources,
+    installSourceDocument,
+    putRuntime,
+    putSource,
+    removeSource,
+    resyncSources,
+    type SourceEntry,
+} from "../lib/storage/sources";
 import { SOURCES, sourceTitle } from "../lib/sources";
+import { usePageActive } from "../lib/page-active";
 import { useTheme } from "../lib/theme";
 import { errorFirstLine } from "../lib/errors";
 import {
@@ -50,7 +61,7 @@ import {
     AnimatedBadge,
     type AnimatedBadgeStatus,
 } from "../components/beui/animated-badge";
-import { Loading, PageHeader, Panel, SettingRow, Tag } from "../components/ui";
+import { LinkButton, Loading, PageHeader, Panel, SettingRow, Tag } from "../components/ui";
 
 /** 备份文件名（grilling #25 #2：单文件聚合）。 */
 const BACKUP_FILE = "mojuan-backup.json";
@@ -150,8 +161,14 @@ export default function Settings() {
             setSettingsState(s);
             if (s.webdav) setWebdav(s.webdav);
         });
-        void refreshSources();
     }, []);
+
+    // 源清单在每次进入设置页时重取：保留页的挂载 effect 不会重跑，调试台里装上的源要在这里出现
+    const active = usePageActive();
+    useEffect(() => {
+        if (!active) return;
+        void refreshSources();
+    }, [active]);
 
     async function refreshSources() {
         const [srcs, errs, ord] = await Promise.all([
@@ -289,29 +306,25 @@ export default function Settings() {
         }
     }
 
-    /** 手动导入：把粘贴的源文档写进已装源（结构由 Rust 侧校验，坏文档不替换已装版本）。 */
+    /** 手动导入：把粘贴的源文档写进已装源（结构由 Rust 侧校验，坏文档不替换已装版本）。
+     * 与调试台的「安装这份文档」共用 installSourceDocument 这一条路径。 */
     async function importDocument() {
         setApplying(true);
         setNotice(null);
         try {
-            const text = importText.trim();
-            if (!text) throw new Error("请先粘贴源文档");
-            const parsed = JSON.parse(text) as { id?: string; title?: string };
-            if (!parsed.id) throw new Error("源文档缺少 id");
-            await putSource({
-                sourceId: parsed.id,
-                version: 1,
-                document: text,
-                updatedAt: Date.now(),
-            });
-            const rejected = await resyncSources();
+            const outcome = await installSourceDocument(importText);
             await refreshSources();
-            const bad = rejected.find((r) => r.id === parsed.id);
-            if (bad) {
-                setNotice({ kind: "err", text: `文档未通过校验：${bad.reason}` });
+            if (!outcome.ok) {
+                setNotice({
+                    kind: "err",
+                    text:
+                        outcome.stage === "rejected"
+                            ? `文档未通过校验：${outcome.reason}`
+                            : `导入失败：${outcome.reason}`,
+                });
             } else {
                 setImportText("");
-                setNotice({ kind: "ok", text: `已导入 ${parsed.title ?? parsed.id}` });
+                setNotice({ kind: "ok", text: `已导入 ${outcome.title}` });
             }
         } catch (e) {
             setNotice({ kind: "err", text: `导入失败：${String(e)}` });
@@ -872,6 +885,15 @@ export default function Settings() {
                             </SettingRow>
                         );
                     })}
+                    <SettingRow
+                        label="源调试台"
+                        hint="写一份源文档，对真实站点跑一次，看每一步的请求与响应"
+                    >
+                        <LinkButton to="/debug" variant="secondary" size="sm">
+                            <FlaskConical className="size-3.5" />
+                            打开调试台
+                        </LinkButton>
+                    </SettingRow>
                     <SettingRow label="手动导入" hint="粘贴一份源文档（JSON）后导入">
                         <textarea
                             value={importText}

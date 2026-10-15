@@ -133,6 +133,57 @@ export function resyncSources(): Promise<{ id: string; reason: string }[]> {
     return syncNow();
 }
 
+/** 安装一份源文档的结果：装上给出 id 与显示名，没装上给出卡在哪一步与原因。 */
+export type InstallOutcome =
+    | { ok: true; id: string; title: string }
+    /** 文档自身不合规（空的、不是 JSON 对象、缺 id）：没有写进已装源。 */
+    | { ok: false; stage: "document"; reason: string }
+    /** Rust 侧校验没过：已装源保持原来的版本。 */
+    | { ok: false; stage: "rejected"; reason: string };
+
+/**
+ * 把一份源文档原文安装为已装源：先做本地校验（JSON 与 id），再写进已装源并同步进 Rust 注册表。
+ * 结构由 Rust 侧校验，坏文档不替换已装版本——原先装着的放回去，没装过的清掉安装记录。
+ *
+ * 设置页的「手动导入」与调试台的「安装这份文档」共用这一条路径。
+ */
+export async function installSourceDocument(text: string): Promise<InstallOutcome> {
+    const document = text.trim();
+    if (!document) {
+        return { ok: false, stage: "document", reason: "请先粘贴源文档" };
+    }
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(document);
+    } catch (e) {
+        return { ok: false, stage: "document", reason: String(e) };
+    }
+    if (typeof parsed !== "object" || parsed === null) {
+        return { ok: false, stage: "document", reason: "源文档不是一个 JSON 对象" };
+    }
+    const { id, title } = parsed as { id?: unknown; title?: unknown };
+    if (typeof id !== "string" || id === "") {
+        return { ok: false, stage: "document", reason: "源文档缺少 id" };
+    }
+
+    // 已装过的先留一份：Rust 侧拒了这份文档时用它把安装记录放回去
+    const previous = (await getSources())[id] ?? null;
+    await putSource({
+        sourceId: id,
+        version: 1,
+        document,
+        updatedAt: Date.now(),
+    });
+    const rejected = await resyncSources();
+    const bad = rejected.find((r) => r.id === id);
+    if (bad) {
+        if (previous) await putSource(previous);
+        else await removeSource(id);
+        return { ok: false, stage: "rejected", reason: bad.reason };
+    }
+    return { ok: true, id, title: typeof title === "string" && title ? title : id };
+}
+
 // ---------- 源进程内缓存的持久化（cache_dump / cache_hydrate） ----------
 
 /** 启动时把上次保存的各源缓存回灌进 Rust。没有持久缓存的源 hydrate 是空操作。 */

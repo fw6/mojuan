@@ -1,26 +1,36 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, useNavigate } from "react-router-dom";
+import { EditorView } from "@codemirror/view";
 import SourceDebugger from "./SourceDebugger";
 import type { DebugRun } from "../api";
 
 // seam：源调试台页面。测的是页面的外部行为——编辑器里的文档、选的 op、填的参数与会话隐藏值
-// 交给 crawl_debug，运行记录按步骤渲染出来，失败时说清停在哪一步。
-// 命令边界在 ../api（与仓库里其它 screens 测试同一形状）。
+// 交给 crawl_debug，运行记录按步骤渲染出来，失败时说清停在哪一步；起点从已装源的安装记录里取，
+// 安装把文档交给设置页「手动导入」那条路径（写进已装源 + 同步进 Rust 注册表）。
+// 命令边界在 ../api（与仓库里其它 screens 测试同一形状），存储域用 test-doubles 的内存 store。
 
 vi.mock("../api", () => ({
     crawlDebug: vi.fn(),
     sourceSchema: vi.fn(),
+    syncSources: vi.fn(),
     imgSrc: (url: string) => url,
 }));
 
-import { crawlDebug, sourceSchema } from "../api";
+vi.mock("@tauri-apps/plugin-store", async () =>
+    (await import("../lib/storage/test-doubles")).storePlugin,
+);
+
+import { crawlDebug, sourceSchema, syncSources } from "../api";
 import { PAGES } from "../App";
 import { KeepAliveRoutes } from "../components/keep-alive";
 import { NAV } from "../lib/nav";
+import { resetDoubles, storePlugin } from "../lib/storage/test-doubles";
+import type { SourceEntry } from "../lib/storage/sources";
 
 const mockedDebug = vi.mocked(crawlDebug);
 const mockedSchema = vi.mocked(sourceSchema);
+const mockedSync = vi.mocked(syncSources);
 
 /** 编辑器补全与校验用的 schema（这一页测的是运行流程，给它一份最小 schema）。 */
 const SCHEMA = {
@@ -79,9 +89,40 @@ function stepBody(header: HTMLElement): HTMLElement {
     return block;
 }
 
+/** 把编辑器里的文档换成给定原文（CodeMirror 的公开 API，相当于作者写进一份文档）。 */
+function setEditorText(container: HTMLElement, text: string) {
+    const view = EditorView.findFromDOM(container);
+    if (!view) throw new Error("编辑器没有渲染出来");
+    act(() => {
+        view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
+    });
+}
+
+/** 编辑器里现在是什么（单行文档的 textContent 就是原文）。 */
+function editorText(container: HTMLElement): string {
+    return container.querySelector(".cm-content")?.textContent ?? "";
+}
+
+/** 往安装记录里放一份已装源（调试台起点的来源）。 */
+async function seedInstalled(id: string, document: string) {
+    const store = await storePlugin.load("sources.json");
+    await store.set("sources", {
+        [id]: { sourceId: id, version: 1, document, updatedAt: 1 },
+    });
+    await store.set("order", [id]);
+}
+
+/** 安装记录里的全部源（断言「装上之后出现在已装源里」用）。 */
+async function installedRecords(): Promise<Record<string, SourceEntry>> {
+    const store = await storePlugin.load("sources.json");
+    return ((await store.get("sources")) ?? {}) as Record<string, SourceEntry>;
+}
+
 beforeEach(() => {
     vi.clearAllMocks();
+    resetDoubles();
     mockedSchema.mockResolvedValue(JSON.stringify(SCHEMA));
+    mockedSync.mockResolvedValue({ sources: [], rejected: [] });
 });
 
 afterEach(() => {
@@ -486,6 +527,136 @@ describe("源调试台的会话隐藏值", () => {
             { comicId: "demo-1" },
             { seriesUrl: { "demo-1": "http://example.com/series/1" } },
         );
+    });
+});
+
+describe("源调试台的起点", () => {
+    /** 一份合法的源文档（单行，编辑器里读回来的原文就是它）。 */
+    const DOC = '{"schema":1,"id":"mysite","title":"我的漫画"}';
+
+    it("选一个已装源，把它的文档复制进编辑器", async () => {
+        await seedInstalled("mysite", DOC);
+        const { container } = render(<SourceDebugger />);
+
+        const select = await screen.findByLabelText("起点");
+        await waitFor(() =>
+            expect(within(select).getByRole("option", { name: "mysite" })).toBeTruthy(),
+        );
+        fireEvent.change(select, { target: { value: "mysite" } });
+
+        await waitFor(() => expect(editorText(container)).toBe(DOC));
+    });
+
+    it("没有已装源时只有「空白」一项", async () => {
+        render(<SourceDebugger />);
+        const select = await screen.findByLabelText("起点");
+        expect(
+            within(select)
+                .getAllByRole("option")
+                .map((o) => o.textContent),
+        ).toEqual(["空白"]);
+    });
+
+    it("换回空白清空编辑器", async () => {
+        await seedInstalled("mysite", DOC);
+        const { container } = render(<SourceDebugger />);
+        const select = await screen.findByLabelText("起点");
+        await waitFor(() =>
+            expect(within(select).getByRole("option", { name: "mysite" })).toBeTruthy(),
+        );
+        fireEvent.change(select, { target: { value: "mysite" } });
+        await waitFor(() => expect(editorText(container)).toBe(DOC));
+
+        fireEvent.change(select, { target: { value: "" } });
+        await waitFor(() => expect(editorText(container)).toBe(""));
+    });
+});
+
+describe("源调试台的安装出口", () => {
+    /** 一份合法的源文档（单行，编辑器里读回来的原文就是它）。 */
+    const DOC = '{"schema":1,"id":"mysite","title":"我的漫画"}';
+    /** 编辑器里的文档不是合法 JSON 时的原文。 */
+    const BROKEN = "{ 不是 JSON";
+    /** 合法的 JSON、但没有 id。 */
+    const NO_ID = '{"schema":1,"title":"没有 id"}';
+
+    function install() {
+        fireEvent.click(screen.getByRole("button", { name: "安装这份文档" }));
+    }
+
+    it("点安装把编辑器里的文档交给导入路径（写进已装源并同步），装上之后出现在已装源里", async () => {
+        const { container } = render(<SourceDebugger />);
+        setEditorText(container, DOC);
+        install();
+
+        await waitFor(() =>
+            expect(mockedSync).toHaveBeenCalledWith({
+                sources: [{ id: "mysite", document: DOC }],
+            }),
+        );
+        expect((await installedRecords()).mysite.document).toBe(DOC);
+        expect(await screen.findByText("已安装 我的漫画")).toBeTruthy();
+    });
+
+    it("文档不是合法 JSON 时不安装，并给出原因", async () => {
+        const { container } = render(<SourceDebugger />);
+        setEditorText(container, BROKEN);
+        install();
+
+        const alert = await screen.findByRole("alert");
+        expect(alert.textContent).toContain("安装失败：");
+        // 没有走导入路径，也没有写进已装源
+        expect(mockedSync).not.toHaveBeenCalled();
+        expect(await installedRecords()).toEqual({});
+    });
+
+    it("文档缺 id 时不安装，并给出原因", async () => {
+        const { container } = render(<SourceDebugger />);
+        setEditorText(container, NO_ID);
+        install();
+
+        expect((await screen.findByRole("alert")).textContent).toContain(
+            "安装失败：源文档缺少 id",
+        );
+        expect(mockedSync).not.toHaveBeenCalled();
+        expect(await installedRecords()).toEqual({});
+    });
+
+    it("Rust 侧校验没过时不装上，并给出原因", async () => {
+        mockedSync.mockResolvedValue({
+            sources: [],
+            rejected: [{ id: "mysite", reason: "missing field `ops`" }],
+        });
+        const { container } = render(<SourceDebugger />);
+        setEditorText(container, DOC);
+        install();
+
+        expect((await screen.findByRole("alert")).textContent).toContain(
+            "文档未通过校验：missing field `ops`",
+        );
+        expect(await installedRecords()).toEqual({});
+    });
+
+    it("Rust 侧拒了这份文档时，原先装着的版本留在已装源里", async () => {
+        const OLD = '{"schema":1,"id":"mysite","title":"旧版"}';
+        await seedInstalled("mysite", OLD);
+        mockedSync.mockResolvedValue({
+            sources: [],
+            rejected: [{ id: "mysite", reason: "missing field `ops`" }],
+        });
+        const { container } = render(<SourceDebugger />);
+        setEditorText(container, DOC);
+        install();
+
+        await screen.findByRole("alert");
+        expect((await installedRecords()).mysite.document).toBe(OLD);
+    });
+
+    it("编辑器里没有文档时不能点安装", async () => {
+        render(<SourceDebugger />);
+        expect(
+            screen.getByRole("button", { name: "安装这份文档" }).hasAttribute("disabled"),
+        ).toBe(true);
     });
 });
 

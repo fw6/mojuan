@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import {
     crawlDebug,
@@ -11,6 +11,8 @@ import { SourceDocEditor } from "../components/source-doc-editor";
 import { Button } from "../components/beui/button";
 import { Input } from "../components/beui/input";
 import { Panel } from "../components/ui";
+import { getOrder, getSources, installSourceDocument } from "../lib/storage/sources";
+import { sourceTitle } from "../lib/sources";
 import { cn } from "../lib/utils";
 
 /**
@@ -18,13 +20,23 @@ import { cn } from "../lib/utils";
  *
  * 与「手动导入」的分工：导入是「我信这份文档，装上」，调试台是「我不确定，先跑一次看看」。
  * 运行走 crawl_debug——真实网络、真实请求头、真实渲染通道，不做重试也不读缓存，
- * 调试台里的文档与已装源完全隔离。
+ * 调试台里的文档与已装源完全隔离。安装复用设置页「手动导入」那条路径（installSourceDocument）。
  */
 
 /** 可调试的 op（与 core 的 OPS 一致）。 */
 const OPS = ["categories", "search", "category", "detail", "images"] as const;
 
 type DebugOp = (typeof OPS)[number];
+
+/** 起点选择里的「空白」：不复制任何已装源。 */
+const BLANK_ORIGIN = "";
+
+/** 已装源里可以拿来当起点的一份（文档原文在前端的安装记录里）。 */
+interface InstalledSource {
+    id: string;
+    title: string;
+    document: string;
+}
 
 /** 参数输入的字段名就是 payload 的键名（与 core 的取数契约一致）。 */
 type ParamName =
@@ -113,6 +125,71 @@ export default function SourceDebugger() {
     const [hidden, setHidden] = useState<DebugHidden>(NO_HIDDEN);
     // 命令本身报错（不是运行记录里的失败）：Rust 侧抛出的原因
     const [thrown, setThrown] = useState<string | null>(null);
+    // 起点：空白，或某个已装源（选它就把它那份文档复制进编辑器）
+    const [origin, setOrigin] = useState<string>(BLANK_ORIGIN);
+    const [installed, setInstalled] = useState<InstalledSource[]>([]);
+    const [installing, setInstalling] = useState(false);
+    const [installNotice, setInstallNotice] = useState<{
+        kind: "ok" | "fail";
+        text: string;
+    } | null>(null);
+    const originSelectId = useId();
+
+    /** 已装源（起点的可选项）：文档原文在前端的安装记录里，顺序按安装顺序。 */
+    const loadInstalled = useCallback(async () => {
+        const [sources, order] = await Promise.all([getSources(), getOrder()]);
+        const ids = order.filter((id) => sources[id]);
+        for (const id of Object.keys(sources)) {
+            if (!ids.includes(id)) ids.push(id);
+        }
+        setInstalled(
+            ids.map((id) => ({
+                id,
+                title: sourceTitle(id),
+                document: sources[id].document,
+            })),
+        );
+    }, []);
+
+    useEffect(() => {
+        void loadInstalled();
+    }, [loadInstalled]);
+
+    /** 换起点：空白清空编辑器，选中的已装源把它的文档复制进来。 */
+    function pickOrigin(id: string) {
+        setOrigin(id);
+        const source = installed.find((s) => s.id === id);
+        setDocument(source ? source.document : "");
+    }
+
+    /** 安装编辑器里的文档：走设置页「手动导入」那条路径（写进已装源 + Rust 侧校验）。 */
+    async function install() {
+        setInstalling(true);
+        setInstallNotice(null);
+        try {
+            const outcome = await installSourceDocument(document);
+            if (!outcome.ok) {
+                setInstallNotice({
+                    kind: "fail",
+                    text:
+                        outcome.stage === "rejected"
+                            ? `文档未通过校验：${outcome.reason}`
+                            : `安装失败：${outcome.reason}`,
+                });
+                return;
+            }
+            setInstallNotice({ kind: "ok", text: `已安装 ${outcome.title}` });
+            // 刚装上的源也可以当起点
+            await loadInstalled();
+        } catch (e) {
+            setInstallNotice({
+                kind: "fail",
+                text: `安装失败：${e instanceof Error ? e.message : String(e)}`,
+            });
+        } finally {
+            setInstalling(false);
+        }
+    }
 
     async function run() {
         setRunning(true);
@@ -150,7 +227,47 @@ export default function SourceDebugger() {
 
             <div className="flex min-h-0 flex-1 flex-col md:flex-row">
                 <section className="flex min-h-[45vh] flex-1 flex-col p-4 md:min-h-0 md:border-r md:border-border md:p-6">
-                    <SourceDocEditor value={document} onChange={setDocument} />
+                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                        <label
+                            htmlFor={originSelectId}
+                            className="text-xs text-muted-foreground"
+                        >
+                            起点
+                        </label>
+                        <select
+                            id={originSelectId}
+                            value={origin}
+                            onChange={(e) => pickOrigin(e.target.value)}
+                            className={cn(
+                                "h-8 rounded-full border border-input bg-transparent px-3 text-xs text-foreground",
+                                "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                            )}
+                        >
+                            <option value={BLANK_ORIGIN}>空白</option>
+                            {installed.map((source) => (
+                                <option key={source.id} value={source.id}>
+                                    {source.title}
+                                </option>
+                            ))}
+                        </select>
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            className="ml-auto"
+                            onClick={() => void install()}
+                            disabled={installing || !document.trim()}
+                        >
+                            {installing ? "安装中…" : "安装这份文档"}
+                        </Button>
+                    </div>
+
+                    {installNotice && (
+                        <Banner kind={installNotice.kind} title={installNotice.text} />
+                    )}
+
+                    <div className="min-h-0 flex-1">
+                        <SourceDocEditor value={document} onChange={setDocument} />
+                    </div>
                 </section>
 
                 <section className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-6">
