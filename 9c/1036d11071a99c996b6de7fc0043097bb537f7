@@ -1,0 +1,46 @@
+apps/mojuan/src/api.ts
+  s_7d6d900879ac28::t_67f4439505d3b8 89
+  s_7d6d900879ac28::t_79fa1ed417e0d2 30-32,41
+GLOSSARY.md
+  s_7d6d900879ac28::t_aafc6e63e0b8b1 28
+DESIGN.md
+  s_7d6d900879ac28::t_aff6559c9e75c7 270
+crates/mojuan-core/src/native/comic_meta.rs
+  s_7d6d900879ac28::t_6265999b8e8132 3-4
+apps/mojuan/src/screens/Library.tsx
+  s_7d6d900879ac28::t_5855f1b4cbfab2 518
+  s_7d6d900879ac28::t_6a3d31fb2dcb18 472-474,483
+  s_7d6d900879ac28::t_31dd33cd21a4a2 402
+  s_7d6d900879ac28::t_cdeb2b8d599612 62
+docs/roadmap.md
+  s_7d6d900879ac28::t_f51109398879a1 21
+docs/agents/frontend.md
+  s_7d6d900879ac28::t_1be9cb656c4d5a 92
+apps/mojuan/src/screens/Library.test.tsx
+  s_7d6d900879ac28::t_e348334ca7fdd4 142-143
+  s_7d6d900879ac28::t_5d4c14f2e98033 139-141,144-145
+PRODUCT.md
+  s_7d6d900879ac28::t_9f7ca6e1d5b236 33
+crates/mojuan-core/src/native/files.rs
+  s_7d6d900879ac28::t_50898a72ae7440 133-134
+  s_7d6d900879ac28::t_c927ab7a06d392 4
+README.md
+  s_7d6d900879ac28::t_7afe9db9b2c0bf 3
+  s_7d6d900879ac28::t_f202c326ec81c6 18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.49-trip",
+  "base_commit_sha": "9c1036d11071a99c996b6de7fc0043097bb537f7",
+  "prompts": {},
+  "sessions": {
+    "s_7d6d900879ac28": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_092e764b-d2fa-425b-93fb-df6e2f7e9d96",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
