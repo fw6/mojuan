@@ -1,0 +1,29 @@
+apps/mojuan/src/screens/Reader.tsx
+  s_4abf08396850a7::t_31343e0484b295 222-225,227,229,233,723,739-740,750,896,904,911-912,918-929,975,980-990
+docs/agents/frontend.md
+  s_86dc53d54605f0::t_991a9e135fca18 145-146
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.49-trip",
+  "base_commit_sha": "f0ea23538e2f79b91b5a13efc5ef57be4331d2ff",
+  "prompts": {},
+  "sessions": {
+    "s_4abf08396850a7": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_283195a8-ff2a-4b20-8d58-ed7fd1aaf145",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    },
+    "s_86dc53d54605f0": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_20c232f7-1114-483f-aaba-03bbd8e4952e",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
