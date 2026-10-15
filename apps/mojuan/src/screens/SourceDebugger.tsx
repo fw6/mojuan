@@ -129,8 +129,11 @@ export default function SourceDebugger() {
 
     return (
         <div className="flex min-h-0 flex-1 flex-col">
+            {/* 窄屏的标题由外壳的顶部栏给出（子页面），这一行只留副标题 */}
             <header className="flex shrink-0 items-baseline gap-3 border-b border-border px-4 py-3 md:px-6">
-                <h1 className="text-sm font-semibold text-foreground">源调试台</h1>
+                <h1 className="hidden text-sm font-semibold text-foreground md:block">
+                    源调试台
+                </h1>
                 <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
                     写一份源文档，选一个 op，对真实站点跑一次
                 </p>
