@@ -43,5 +43,10 @@ export default defineConfig(async () => ({
     environment: "jsdom",
     setupFiles: ["src/test-setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
+    server: {
+      // codemirror-json-schema 的 ESM 产物用无扩展名的相对 import（`./features/completion`），
+      // 打包器能解析、Node 的原生 ESM 不能。测试里让 Vite 处理这个包，不走 node 原生加载。
+      deps: { inline: ["codemirror-json-schema"] },
+    },
   },
 }));

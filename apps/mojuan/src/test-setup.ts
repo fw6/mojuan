@@ -49,6 +49,30 @@ if (typeof globalThis.ResizeObserver === "undefined") {
  * 在关闭时调用它恢复位置，这里换成空实现。 */
 window.scrollTo = (() => {}) as typeof window.scrollTo;
 
+/** jsdom 没有实现 Range 的布局测量（Element 上有，Range 上没有），而 CodeMirror
+ * 的光标坐标、选区绘制与补全浮层定位会调用它们。补成原点处的零尺寸矩形：
+ * 测试断言的是内容与校验提示，不依赖真实的尺寸与位置。 */
+Range.prototype.getClientRects = function (this: Range): DOMRectList {
+    const rect = this.getBoundingClientRect();
+    return Object.assign([rect], {
+        item: (i: number) => (i === 0 ? rect : null),
+    }) as unknown as DOMRectList;
+} as typeof Range.prototype.getClientRects;
+
+Range.prototype.getBoundingClientRect = function (): DOMRect {
+    return {
+        x: 0,
+        y: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        width: 0,
+        height: 0,
+        toJSON: () => ({}),
+    } as DOMRect;
+} as typeof Range.prototype.getBoundingClientRect;
+
 /** jsdom 也没有 Element.scrollTo（虚拟列表用它滚动、阅读器恢复阅读位置也走它）。
  * 补成「写 scrollTop」——浏览器里这一步就是滚动容器，读 scrollTop 即可观察。 */
 Element.prototype.scrollTo = function (
