@@ -338,6 +338,25 @@ mod tests {
         <a class="series" data-href="https://example.com/s/7">系列</a>
     "#;
 
+    /// images 的 op 级隐藏值：对图片页根节点求值，键是漫画 id。
+    const IMAGES_DOC: &str = r#"{
+        "schema": 1, "id": "demo", "title": "演示", "idPrefix": "demo-",
+        "base": "https://example.com",
+        "ops": {
+            "images": {
+                "request": [{ "name": "page", "url": "{base}/comic/{comicId}" }],
+                "items": "img.p",
+                "url": { "attr": "src" },
+                "hidden": { "nextPage": { "select": "a.next", "attr": "href" } }
+            }
+        }
+    }"#;
+
+    const IMAGES_HTML: &str = r#"
+        <img class="p" src="https://example.com/p/1.jpg">
+        <a class="next" href="https://example.com/comic/7/2">下一页</a>
+    "#;
+
     fn entry() -> std::sync::Arc<Entry> {
         sync(SyncPayload {
             runtime: None,
@@ -400,6 +419,31 @@ mod tests {
         assert_eq!(
             entry.hidden_ctx()["seriesUrl"]["demo-7"],
             "https://example.com/s/7"
+        );
+    }
+
+    /// images 的 op 级隐藏值：对图片页根节点求值，键是漫画 id，值经 parse 信封进宿主缓存。
+    #[test]
+    fn images_hidden_is_evaluated_against_the_page_root() {
+        let _guard = registry::test_lock();
+        let port = spawn_mock(|_| IMAGES_HTML.to_string());
+        let doc = IMAGES_DOC.replace("https://example.com", &format!("http://127.0.0.1:{port}"));
+        sync(SyncPayload {
+            runtime: None,
+            sources: vec![SyncSource {
+                id: "demo".to_string(),
+                document: doc,
+            }],
+        });
+        let entry = registry::get("demo").unwrap();
+        let (out, ok) = run(&entry, "images", r#"{"comicId":"demo-7","chapterIndex":1}"#);
+        assert!(ok, "out = {out}");
+        let images: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(images, json!(["https://example.com/p/1.jpg"]));
+        // 键是漫画 id，值是对图片页根节点求值的结果（响应里的 a.next href）
+        assert_eq!(
+            entry.hidden_ctx()["nextPage"]["demo-7"],
+            "https://example.com/comic/7/2"
         );
     }
 
