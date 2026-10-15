@@ -34,6 +34,7 @@ vi.mock("../lib/storage/sources", () => ({
     putRuntime: vi.fn(),
     removeSource: vi.fn(),
     resyncSources: vi.fn(),
+    installSourceDocument: vi.fn(),
 }));
 
 vi.mock("../lib/storage/backup", () => ({
@@ -74,6 +75,7 @@ vi.mock("@tauri-apps/plugin-process", () => ({
 import { mojuanVersion, sourceErrors } from "../api";
 import { getSettings, setSettings } from "../lib/storage/settings";
 import { getSources, getOrder } from "../lib/storage/sources";
+import { PageActiveContext } from "../lib/page-active";
 
 const mockedVersion = vi.mocked(mojuanVersion);
 const mockedErrors = vi.mocked(sourceErrors);
@@ -95,11 +97,13 @@ function settings(over: Partial<Settings> = {}): Settings {
     };
 }
 
-function renderSettings() {
+function renderSettings(active = true) {
     return render(
         <MemoryRouter>
             <ToastProvider>
-                <SettingsPage />
+                <PageActiveContext.Provider value={active}>
+                    <SettingsPage />
+                </PageActiveContext.Provider>
             </ToastProvider>
         </MemoryRouter>,
     );
@@ -140,5 +144,39 @@ describe("设置页的「书架追更」开关", () => {
         await waitFor(() =>
             expect(mockedSetSettings).toHaveBeenCalledWith({ followUpdate: false }),
         );
+    });
+});
+
+describe("设置页的「漫画源」段", () => {
+    it("有进入源调试台的入口", async () => {
+        renderSettings();
+        const link = await screen.findByRole("link", { name: /调试台/ });
+        expect(link.getAttribute("href")).toBe("#/debug");
+    });
+
+    it("重新进入设置页时重取源清单：调试台里装上的源出现在清单里", async () => {
+        const { rerender } = renderSettings(false);
+        // 页面在后台（被保留着）：不重取
+        expect(mockedSources).not.toHaveBeenCalled();
+
+        mockedSources.mockResolvedValue({
+            mysite: {
+                sourceId: "mysite",
+                version: 1,
+                document: '{"schema":1,"id":"mysite"}',
+                updatedAt: 1,
+            },
+        });
+        rerender(
+            <MemoryRouter>
+                <ToastProvider>
+                    <PageActiveContext.Provider value={true}>
+                        <SettingsPage />
+                    </PageActiveContext.Provider>
+                </ToastProvider>
+            </MemoryRouter>,
+        );
+
+        expect(await screen.findByText("mysite")).toBeTruthy();
     });
 });
