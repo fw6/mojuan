@@ -133,6 +133,8 @@ export default function SourceDebugger() {
         kind: "ok" | "fail";
         text: string;
     } | null>(null);
+    // 格式化失败的原因（文档不是合法 JSON）：文档原样留着
+    const [formatError, setFormatError] = useState<string | null>(null);
     const originSelectId = useId();
 
     /** 已装源（起点的可选项）：文档原文在前端的安装记录里，顺序按安装顺序。 */
@@ -188,6 +190,17 @@ export default function SourceDebugger() {
             });
         } finally {
             setInstalling(false);
+        }
+    }
+
+    /** 格式化：把编辑器里的文档按 2 空格缩进重排；解析不过时不改动文档，给出原因。 */
+    function format() {
+        try {
+            const parsed: unknown = JSON.parse(document);
+            setFormatError(null);
+            setDocument(JSON.stringify(parsed, null, 2));
+        } catch (e) {
+            setFormatError(e instanceof Error ? e.message : String(e));
         }
     }
 
@@ -253,6 +266,14 @@ export default function SourceDebugger() {
                         <Button
                             variant="secondary"
                             size="sm"
+                            onClick={format}
+                            disabled={!document.trim()}
+                        >
+                            格式化
+                        </Button>
+                        <Button
+                            variant="secondary"
+                            size="sm"
                             className="ml-auto"
                             onClick={() => void install()}
                             disabled={installing || !document.trim()}
@@ -260,6 +281,12 @@ export default function SourceDebugger() {
                             {installing ? "安装中…" : "安装这份文档"}
                         </Button>
                     </div>
+
+                    {formatError && (
+                        <Banner kind="fail" title="格式化失败">
+                            <span className="break-all font-mono">{formatError}</span>
+                        </Banner>
+                    )}
 
                     {installNotice && (
                         <Banner kind={installNotice.kind} title={installNotice.text} />

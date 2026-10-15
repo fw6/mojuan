@@ -103,6 +103,13 @@ function editorText(container: HTMLElement): string {
     return container.querySelector(".cm-content")?.textContent ?? "";
 }
 
+/** 编辑器里的文档原文（从 EditorView 的状态取，换行保留）。 */
+function editorDoc(container: HTMLElement): string {
+    const view = EditorView.findFromDOM(container);
+    if (!view) throw new Error("编辑器没有渲染出来");
+    return view.state.doc.toString();
+}
+
 /** 往安装记录里放一份已装源（调试台起点的来源）。 */
 async function seedInstalled(id: string, document: string) {
     const store = await storePlugin.load("sources.json");
@@ -569,6 +576,41 @@ describe("源调试台的起点", () => {
 
         fireEvent.change(select, { target: { value: "" } });
         await waitFor(() => expect(editorText(container)).toBe(""));
+    });
+});
+
+describe("源调试台的格式化", () => {
+    function format() {
+        fireEvent.click(screen.getByRole("button", { name: "格式化" }));
+    }
+
+    it("把编辑器里的文档按 2 空格缩进重排", async () => {
+        const { container } = render(<SourceDebugger />);
+        setEditorText(container, '{"schema":1,"id":"mysite"}');
+        format();
+
+        await waitFor(() =>
+            expect(editorDoc(container)).toBe(
+                '{\n  "schema": 1,\n  "id": "mysite"\n}',
+            ),
+        );
+    });
+
+    it("文档不是合法 JSON 时不改动文档，并给出原因", async () => {
+        const { container } = render(<SourceDebugger />);
+        setEditorText(container, "{ 不是 JSON");
+        format();
+
+        const alert = await screen.findByRole("alert");
+        expect(alert.textContent).toContain("格式化失败");
+        expect(editorDoc(container)).toBe("{ 不是 JSON");
+    });
+
+    it("编辑器里没有文档时不能点格式化", () => {
+        render(<SourceDebugger />);
+        expect(
+            screen.getByRole("button", { name: "格式化" }).hasAttribute("disabled"),
+        ).toBe(true);
     });
 });
 
