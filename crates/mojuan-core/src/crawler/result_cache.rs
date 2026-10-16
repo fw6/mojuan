@@ -39,7 +39,13 @@ static LRU: LazyLock<Lru<String, Entry>> = LazyLock::new(|| Lru::new(LRU_CAP));
 /// 读缓存：内存 LRU → 磁盘。空 cache_dir 表示禁用缓存。
 /// artifact 为空（源文档尚未同步进 registry）时同样禁用：缓存键含文档，未就绪时
 /// 写入的条目与就绪后的条目分列两个键，永远不会再次命中。
-pub fn get(cache_dir: &str, source: &str, op: &str, payload: &str, artifact: &str) -> Option<Entry> {
+pub fn get(
+    cache_dir: &str,
+    source: &str,
+    op: &str,
+    payload: &str,
+    artifact: &str,
+) -> Option<Entry> {
     if cache_dir.is_empty() || artifact.is_empty() || !is_cacheable(op) {
         return None;
     }
@@ -109,6 +115,38 @@ pub fn prune(cache_dir: &str, max_age: Duration) {
     }
 }
 
+/// 结果缓存占用：`results` 下 `.json` 的字节数与条数。
+pub fn usage(cache_dir: &str) -> (u64, usize) {
+    let Ok(entries) = std::fs::read_dir(results_dir(cache_dir)) else {
+        return (0, 0);
+    };
+    let mut bytes = 0u64;
+    let mut count = 0usize;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        if let Ok(meta) = entry.metadata() {
+            if meta.is_file() {
+                bytes += meta.len();
+                count += 1;
+            }
+        }
+    }
+    (bytes, count)
+}
+
+/// 清空结果缓存：删掉 `results` 下的全部文件并清空内存表。
+pub fn clear(cache_dir: &str) {
+    if let Ok(entries) = std::fs::read_dir(results_dir(cache_dir)) {
+        for entry in entries.flatten() {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+    LRU.clear();
+}
+
 /// 缓存键：source / op / 规范化 payload / 源文档 / 运行时版本标识 的 sha256
 /// （文档或运行时变化 = 旧条目不再命中）。
 fn cache_key(source: &str, op: &str, payload: &str, artifact: &str) -> String {
@@ -163,7 +201,14 @@ mod tests {
     fn put_then_get_hits_memory() {
         let dir = temp_dir("memory");
         let d = dir.to_str().unwrap();
-        put(d, "webtoons", "category", r#"{"label":"动作"}"#, "s1", r#"[{"id":"a"}]"#);
+        put(
+            d,
+            "webtoons",
+            "category",
+            r#"{"label":"动作"}"#,
+            "s1",
+            r#"[{"id":"a"}]"#,
+        );
         let (data, at) = get(d, "webtoons", "category", r#"{"label":"动作"}"#, "s1").unwrap();
         assert_eq!(data, r#"[{"id":"a"}]"#);
         assert!(at > 0);
@@ -174,7 +219,14 @@ mod tests {
     fn disk_hit_after_lru_clear() {
         let dir = temp_dir("disk");
         let d = dir.to_str().unwrap();
-        put(d, "webtoons", "detail", r#"{"comicId":"x"}"#, "s2", r#"{"comic":{}}"#);
+        put(
+            d,
+            "webtoons",
+            "detail",
+            r#"{"comicId":"x"}"#,
+            "s2",
+            r#"{"comic":{}}"#,
+        );
         clear_lru();
         let (data, _) = get(d, "webtoons", "detail", r#"{"comicId":"x"}"#, "s2").unwrap();
         assert_eq!(data, r#"{"comic":{}}"#);
@@ -208,7 +260,14 @@ mod tests {
     fn non_cacheable_op_not_stored() {
         let dir = temp_dir("nocache");
         let d = dir.to_str().unwrap();
-        put(d, "webtoons", "images", r#"{"comicId":"x"}"#, "s5", r#"["u"]"#);
+        put(
+            d,
+            "webtoons",
+            "images",
+            r#"{"comicId":"x"}"#,
+            "s5",
+            r#"["u"]"#,
+        );
         assert!(get(d, "webtoons", "images", r#"{"comicId":"x"}"#, "s5").is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -217,8 +276,21 @@ mod tests {
     fn payload_key_order_normalized() {
         let dir = temp_dir("keyorder");
         let d = dir.to_str().unwrap();
-        put(d, "webtoons", "detail", r#"{"comicId":"x","chapterIndex":2}"#, "s6", r#"{"ok":1}"#);
-        let hit = get(d, "webtoons", "detail", r#"{"chapterIndex":2,"comicId":"x"}"#, "s6");
+        put(
+            d,
+            "webtoons",
+            "detail",
+            r#"{"comicId":"x","chapterIndex":2}"#,
+            "s6",
+            r#"{"ok":1}"#,
+        );
+        let hit = get(
+            d,
+            "webtoons",
+            "detail",
+            r#"{"chapterIndex":2,"comicId":"x"}"#,
+            "s6",
+        );
         assert!(hit.is_some(), "键序不同应命中同一缓存");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -282,6 +354,64 @@ mod tests {
         clear_lru();
         prune(d, Duration::ZERO);
         assert!(get(d, "webtoons", "category", "{}", "s8").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn usage_counts_json_entries() {
+        let dir = temp_dir("usage");
+        let d = dir.to_str().unwrap();
+        put(
+            d,
+            "webtoons",
+            "category",
+            r#"{"label":"动作"}"#,
+            "s9",
+            r#"[{"id":"a"}]"#,
+        );
+        put(
+            d,
+            "webtoons",
+            "detail",
+            r#"{"comicId":"x"}"#,
+            "s9",
+            r#"{"comic":{}}"#,
+        );
+
+        let (bytes, count) = usage(d);
+        assert_eq!(count, 2);
+        assert!(bytes > 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 清空之后目录为空、内存表也空：再取同一条要走磁盘并重写。
+    #[test]
+    fn clear_empties_disk_and_memory() {
+        let dir = temp_dir("clear");
+        let d = dir.to_str().unwrap();
+        put(
+            d,
+            "webtoons",
+            "category",
+            r#"{"label":"动作"}"#,
+            "s10",
+            r#"["a"]"#,
+        );
+
+        clear(d);
+        assert_eq!(usage(d), (0, 0), "清空后目录为空");
+        assert!(get(d, "webtoons", "category", r#"{"label":"动作"}"#, "s10").is_none());
+
+        put(
+            d,
+            "webtoons",
+            "category",
+            r#"{"label":"动作"}"#,
+            "s10",
+            r#"["b"]"#,
+        );
+        let (data, _) = get(d, "webtoons", "category", r#"{"label":"动作"}"#, "s10").unwrap();
+        assert_eq!(data, r#"["b"]"#);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

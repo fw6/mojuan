@@ -9,7 +9,7 @@ use crate::native::download_index;
 use crate::native::paths::{comic_dir, FLAT_SOURCE};
 use serde_json::{json, Value};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const CHROME_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
 
@@ -135,43 +135,84 @@ fn chapter_count(comic_path: &Path) -> i64 {
 pub fn scan_local(dir: &str) -> String {
     let base = Path::new(dir);
     let mut arr = Vec::new();
-    let mut push = |source: &str, comic_id: &str, path: &Path| {
-        let meta = comic_meta::read(dir, source, comic_id);
+    for path in comic_dirs(dir) {
+        // 扁平条目落在下载目录的下一层：它的父目录就是下载目录本身
+        let source = match path.parent() {
+            Some(parent) if parent != base => {
+                parent.file_name().map(|n| n.to_string_lossy().into_owned())
+            }
+            _ => Some(FLAT_SOURCE.to_string()),
+        }
+        .unwrap_or_default();
+        let comic_id = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let meta = comic_meta::read(dir, &source, &comic_id);
         arr.push(json!({
             "source": source,
             "comicId": comic_id,
-            "chapterCount": chapter_count(path),
+            "chapterCount": chapter_count(&path),
             "title": meta.as_ref().map(|m| m.title.clone()).unwrap_or_default(),
             "cover": meta.as_ref().map(|m| m.cover.clone()).unwrap_or_default(),
         }));
+    }
+    Value::Array(arr).to_string()
+}
+
+/// 下载目录下的作品目录（含 `chapter_*` 的目录），命名空间与扁平两种布局都算。
+/// `scan_local` 与 `download_usage` 共用这一份判定。
+fn comic_dirs(dir: &str) -> Vec<PathBuf> {
+    let base = Path::new(dir);
+    let mut out = Vec::new();
+    let Ok(entries) = fs::read_dir(base) else {
+        return out;
     };
-    if let Ok(entries) = fs::read_dir(base) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-            let name = entry.file_name().to_string_lossy().to_string();
-            // 顶层目录直接含 chapter_* → 扁平漫画
-            if chapter_count(&path) > 0 {
-                push(FLAT_SOURCE, &name, &path);
-                continue;
-            }
-            // 否则按 source 层递归一层：子目录含 chapter_* → 命名空间漫画
-            if let Ok(children) = fs::read_dir(&path) {
-                for child in children.flatten() {
-                    let child_path = child.path();
-                    if !child_path.is_dir() {
-                        continue;
-                    }
-                    if chapter_count(&child_path) > 0 {
-                        push(&name, &child.file_name().to_string_lossy(), &child_path);
-                    }
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        // 顶层目录直接含 chapter_* → 扁平漫画
+        if chapter_count(&path) > 0 {
+            out.push(path);
+            continue;
+        }
+        // 否则按 source 层递归一层：子目录含 chapter_* → 命名空间漫画
+        if let Ok(children) = fs::read_dir(&path) {
+            for child in children.flatten() {
+                let child_path = child.path();
+                if child_path.is_dir() && chapter_count(&child_path) > 0 {
+                    out.push(child_path);
                 }
             }
         }
     }
-    Value::Array(arr).to_string()
+    out
+}
+
+/// 目录下全部文件（递归）的字节数；读不到按 0 计。
+fn dir_size(path: &Path) -> u64 {
+    let Ok(entries) = fs::read_dir(path) else {
+        return 0;
+    };
+    let mut total = 0u64;
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if p.is_dir() {
+            total += dir_size(&p);
+        } else if let Ok(meta) = entry.metadata() {
+            total += meta.len();
+        }
+    }
+    total
+}
+
+/// 下载占用：整棵下载目录的字节数与作品数（作品判定与 `scan_local` 一致）。只读本地文件。
+pub fn download_usage(dir: &str) -> (u64, usize) {
+    let comics = comic_dirs(dir);
+    let bytes = comics.iter().map(|path| dir_size(path)).sum();
+    (bytes, comics.len())
 }
 
 #[cfg(test)]
@@ -200,7 +241,14 @@ mod tests {
         fs::create_dir_all(dir.join("webtoons").join("comic-a").join("chapter_1")).unwrap();
         fs::create_dir_all(dir.join("webtoons").join("comic-a").join("chapter_2")).unwrap();
         fs::create_dir_all(dir.join("mangadex").join("comic-b").join("chapter_3")).unwrap();
-        fs::write(dir.join("webtoons").join("comic-a").join("chapter_1").join("0.jpg"), b"x").unwrap();
+        fs::write(
+            dir.join("webtoons")
+                .join("comic-a")
+                .join("chapter_1")
+                .join("0.jpg"),
+            b"x",
+        )
+        .unwrap();
         // 非 chapter_ 前缀目录不计
         fs::create_dir_all(dir.join("webtoons").join("comic-a").join("misc")).unwrap();
         // 扁平：comic-c 直接含 chapter_4
@@ -249,7 +297,10 @@ mod tests {
     fn read_comic_meta_returns_null_without_metadata() {
         let dir = temp_dir("meta-json");
         fs::create_dir_all(dir.join("webtoons").join("comic-a").join("chapter_1")).unwrap();
-        assert_eq!(read_comic_meta(dir.to_str().unwrap(), "webtoons", "comic-a"), "null");
+        assert_eq!(
+            read_comic_meta(dir.to_str().unwrap(), "webtoons", "comic-a"),
+            "null"
+        );
 
         comic_meta::record_chapter(
             dir.to_str().unwrap(),
@@ -260,8 +311,12 @@ mod tests {
             7,
             "第 7 话",
         );
-        let meta: Value =
-            serde_json::from_str(&read_comic_meta(dir.to_str().unwrap(), "webtoons", "comic-a")).unwrap();
+        let meta: Value = serde_json::from_str(&read_comic_meta(
+            dir.to_str().unwrap(),
+            "webtoons",
+            "comic-a",
+        ))
+        .unwrap();
         assert_eq!(meta["title"], "作品甲");
         assert_eq!(meta["chapters"]["7"], "第 7 话");
 
@@ -272,18 +327,40 @@ mod tests {
     fn list_downloaded_resolves_namespace_and_flat() {
         let dir = temp_dir("list2");
         fs::create_dir_all(dir.join("webtoons").join("comic-a").join("chapter_1")).unwrap();
-        fs::write(dir.join("webtoons").join("comic-a").join("chapter_1").join("0.jpg"), b"x").unwrap();
+        fs::write(
+            dir.join("webtoons")
+                .join("comic-a")
+                .join("chapter_1")
+                .join("0.jpg"),
+            b"x",
+        )
+        .unwrap();
         fs::create_dir_all(dir.join("comic-c").join("chapter_4")).unwrap();
         fs::write(dir.join("comic-c").join("chapter_4").join("0.webp"), b"y").unwrap();
 
-        let listed: Value = serde_json::from_str(&list_downloaded(dir.to_str().unwrap(), "webtoons", "comic-a")).unwrap();
+        let listed: Value = serde_json::from_str(&list_downloaded(
+            dir.to_str().unwrap(),
+            "webtoons",
+            "comic-a",
+        ))
+        .unwrap();
         // 新格式：[{ "url": "", "path": "chapter_1/0.jpg" }]
         assert_eq!(listed["1"].as_array().unwrap().len(), 1);
         assert_eq!(listed["1"][0]["path"], "chapter_1/0.jpg");
         // 命名空间下找不到扁平路径
-        assert!(serde_json::from_str::<Value>(&list_downloaded(dir.to_str().unwrap(), "mangadex", "comic-a")).unwrap().as_object().unwrap().is_empty());
+        assert!(serde_json::from_str::<Value>(&list_downloaded(
+            dir.to_str().unwrap(),
+            "mangadex",
+            "comic-a"
+        ))
+        .unwrap()
+        .as_object()
+        .unwrap()
+        .is_empty());
 
-        let flat: Value = serde_json::from_str(&list_downloaded(dir.to_str().unwrap(), "local", "comic-c")).unwrap();
+        let flat: Value =
+            serde_json::from_str(&list_downloaded(dir.to_str().unwrap(), "local", "comic-c"))
+                .unwrap();
         assert_eq!(flat["4"].as_array().unwrap().len(), 1);
         assert_eq!(flat["4"][0]["path"], "chapter_4/0.webp");
 
@@ -295,7 +372,14 @@ mod tests {
         let dir = temp_dir("delete");
         let base = dir.to_str().unwrap();
         fs::create_dir_all(dir.join("webtoons").join("comic-a").join("chapter_1")).unwrap();
-        fs::write(dir.join("webtoons").join("comic-a").join("chapter_1").join("0.jpg"), b"x").unwrap();
+        fs::write(
+            dir.join("webtoons")
+                .join("comic-a")
+                .join("chapter_1")
+                .join("0.jpg"),
+            b"x",
+        )
+        .unwrap();
         fs::create_dir_all(dir.join("webtoons").join("comic-b").join("chapter_1")).unwrap();
         fs::create_dir_all(dir.join("comic-c").join("chapter_4")).unwrap();
 
@@ -324,6 +408,50 @@ mod tests {
         assert!(delete_downloaded("", "webtoons", "comic-a").is_err());
         assert!(dir.exists());
 
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 下载占用：命名空间与扁平两种布局的作品都算，字节数递归统计全部文件；
+    /// 不含 `chapter_*` 的目录不算作品。
+    #[test]
+    fn download_usage_sums_bytes_and_counts_comics() {
+        let dir = temp_dir("usage");
+        fs::create_dir_all(dir.join("webtoons").join("comic-a").join("chapter_1")).unwrap();
+        fs::write(
+            dir.join("webtoons")
+                .join("comic-a")
+                .join("chapter_1")
+                .join("0.jpg"),
+            vec![0u8; 10],
+        )
+        .unwrap();
+        fs::create_dir_all(dir.join("webtoons").join("comic-a").join("chapter_2")).unwrap();
+        fs::write(
+            dir.join("webtoons")
+                .join("comic-a")
+                .join("chapter_2")
+                .join("0.jpg"),
+            vec![0u8; 20],
+        )
+        .unwrap();
+        fs::create_dir_all(dir.join("comic-b").join("chapter_1")).unwrap();
+        fs::write(
+            dir.join("comic-b").join("chapter_1").join("0.jpg"),
+            vec![0u8; 5],
+        )
+        .unwrap();
+        // 没有 chapter_* 的目录不算作品，它的文件也不计
+        fs::create_dir_all(dir.join("mangadex").join("comic-c").join("misc")).unwrap();
+        fs::write(
+            dir.join("mangadex")
+                .join("comic-c")
+                .join("misc")
+                .join("x.bin"),
+            vec![0u8; 99],
+        )
+        .unwrap();
+
+        assert_eq!(download_usage(dir.to_str().unwrap()), (35, 2));
         let _ = fs::remove_dir_all(&dir);
     }
 }

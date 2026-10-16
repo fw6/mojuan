@@ -43,6 +43,7 @@ vi.mock("../lib/storage/history", () => ({
 
 vi.mock("../lib/storage/settings", () => ({
     getSettings: vi.fn(),
+    DEFAULT_IMAGE_CACHE_LIMIT: 1024 * 1024 * 1024,
 }));
 
 vi.mock("../lib/storage/store", () => ({
@@ -59,7 +60,7 @@ import { getFollowStates, removeFollowState } from "../lib/storage/follow";
 import { getProgressAll } from "../lib/storage/progress";
 import { runFollowCheckNow } from "../lib/follow-check";
 import { getHistory, removeHistory } from "../lib/storage/history";
-import { getSettings } from "../lib/storage/settings";
+import { DEFAULT_IMAGE_CACHE_LIMIT, getSettings } from "../lib/storage/settings";
 
 const mockedScan = vi.mocked(scanLocal);
 const mockedDeleteDownloaded = vi.mocked(deleteDownloaded);
@@ -124,6 +125,7 @@ beforeEach(() => {
         lastSource: null,
         lastCategory: {},
         followCheckedAt: null,
+        imageCacheLimit: DEFAULT_IMAGE_CACHE_LIMIT,
     });
     mockedHistory.mockResolvedValue([
         { comic: comic("a"), chapterIndex: 3, chapterTitle: "", lastReadAt: 2 },
@@ -213,6 +215,7 @@ describe("书架页的删除", () => {
             lastSource: null,
             lastCategory: {},
             followCheckedAt: null,
+            imageCacheLimit: DEFAULT_IMAGE_CACHE_LIMIT,
         });
         mockedScan.mockResolvedValue(items);
         mockedDeleteDownloaded.mockResolvedValue(undefined);
@@ -240,6 +243,7 @@ describe("书架页的删除", () => {
             lastSource: null,
             lastCategory: {},
             followCheckedAt: null,
+            imageCacheLimit: DEFAULT_IMAGE_CACHE_LIMIT,
         });
         mockedScan.mockResolvedValue([
             {
@@ -281,6 +285,7 @@ describe("书架页的删除", () => {
             lastSource: null,
             lastCategory: {},
             followCheckedAt: null,
+            imageCacheLimit: DEFAULT_IMAGE_CACHE_LIMIT,
         });
         mockedScan.mockResolvedValue([
             {

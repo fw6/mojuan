@@ -7,6 +7,7 @@ vi.mock("../api", () => ({
 vi.mock("./storage/settings", () => ({
     getSettings: vi.fn(),
     setSettings: vi.fn(),
+    DEFAULT_IMAGE_CACHE_LIMIT: 1024 * 1024 * 1024,
 }));
 vi.mock("./storage/follow", () => ({
     getFollowState: vi.fn(),
@@ -21,7 +22,7 @@ vi.mock("./storage/sources", () => ({
 
 import { runFollowCheck, runFollowCheckNow, type FollowCheckInput } from "./follow-check";
 import { crawl } from "../api";
-import { getSettings, type Settings } from "./storage/settings";
+import { DEFAULT_IMAGE_CACHE_LIMIT, getSettings, type Settings } from "./storage/settings";
 import { getFollowState, setFollowState } from "./storage/follow";
 import { getProgress } from "./storage/progress";
 import { whenSourcesReady } from "./storage/sources";
@@ -45,6 +46,7 @@ function settings(over: Partial<Settings> = {}): Settings {
         lastSource: null,
         lastCategory: {},
         followCheckedAt: null,
+        imageCacheLimit: DEFAULT_IMAGE_CACHE_LIMIT,
         ...over,
     };
 }

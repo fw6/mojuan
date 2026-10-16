@@ -7,6 +7,7 @@ import Library from "./screens/Library";
 import Settings from "./screens/Settings";
 import Downloads from "./screens/Downloads";
 import SourceDebugger from "./screens/SourceDebugger";
+import Storage from "./screens/Storage";
 import { hydrateSourceCaches, whenSourcesReady } from "./lib/storage/sources";
 import { ThemeProvider } from "./lib/theme";
 import { ToastProvider } from "./components/toast";
@@ -21,6 +22,8 @@ export const PAGES: PageRoute[] = [
     { path: "/settings", element: <Settings />, keep: 1 },
     // 调试台：整屏两栏（编辑器 + 运行面板与步骤日志），自带滚动容器，离开即释放
     { path: "/debug", element: <SourceDebugger />, keep: 0, scroll: false },
+    // 存储页：整屏，入口在设置页的存储段，离开即释放
+    { path: "/storage", element: <Storage />, keep: 0 },
     // 详情页保留最近打开的几部：返回时章节列表与滚动位置都还在
     { path: "/comic/:source/:comicId", element: <Detail />, keep: 5 },
     // 阅读器图片与虚拟列表占用大，离开即释放

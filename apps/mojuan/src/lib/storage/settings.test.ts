@@ -13,7 +13,7 @@ beforeEach(() => {
 });
 
 describe("设置 settings", () => {
-    it("未设置时返回默认值（下载目录 = ~/Downloads/mojuan）", async () => {
+    it("未设置时返回默认值（下载目录 = ~/Downloads/mojuan，图片缓存上限 1 GB）", async () => {
         await expect(getSettings()).resolves.toEqual({
             downloadDir: "/mock/Downloads/mojuan",
             darkMode: false,
@@ -22,6 +22,7 @@ describe("设置 settings", () => {
             lastSource: null,
             lastCategory: {},
             followCheckedAt: null,
+            imageCacheLimit: 1024 * 1024 * 1024,
         });
     });
 
@@ -36,6 +37,14 @@ describe("设置 settings", () => {
             lastSource: null,
             lastCategory: {},
             followCheckedAt: null,
+            imageCacheLimit: 1024 * 1024 * 1024,
+        });
+    });
+
+    it("图片缓存上限可写可读，重启后仍然生效", async () => {
+        await setSettings({ imageCacheLimit: 500 * 1024 * 1024 });
+        await expect(getSettings()).resolves.toMatchObject({
+            imageCacheLimit: 500 * 1024 * 1024,
         });
     });
 

@@ -63,11 +63,7 @@ pub async fn crawl_debug(
 /// 未命中返回 `null`。前端加载列表/详情的 stale-while-revalidate 前半段：
 /// 先渲染缓存，再调 crawl 拉最新并回写。
 #[tauri::command]
-pub async fn crawl_cached(
-    op: String,
-    source: String,
-    payload: String,
-) -> Result<String, String> {
+pub async fn crawl_cached(op: String, source: String, payload: String) -> Result<String, String> {
     let cache_dir = APP_CACHE_DIR.get().cloned().unwrap_or_default();
     tauri::async_runtime::spawn_blocking(move || {
         mojuan_core::cached_result(&op, &source, &payload, &cache_dir)
@@ -105,7 +101,9 @@ pub fn source_schema() -> String {
 pub fn source_errors() -> HashMap<String, serde_json::Value> {
     mojuan_core::crawler::registry::all_errors()
         .into_iter()
-        .map(|(source, (message, at))| (source, serde_json::json!({ "message": message, "at": at })))
+        .map(|(source, (message, at))| {
+            (source, serde_json::json!({ "message": message, "at": at }))
+        })
         .collect()
 }
 
@@ -189,4 +187,44 @@ pub fn img_proxy_port() -> u16 {
 #[tauri::command]
 pub fn img_proxy_set_download_dir(dir: String) {
     *DOWNLOAD_DIR.lock().unwrap() = dir;
+}
+
+/// 存储占用：图片缓存、结果缓存与下载三项（字节数与条数/作品数）。
+/// `dir` 是用户配置的下载目录，缓存目录取应用缓存目录。扫描整个下载目录较慢，走阻塞线程。
+#[tauri::command]
+pub async fn storage_usage(dir: String) -> Result<String, String> {
+    let cache_dir = APP_CACHE_DIR.get().cloned().unwrap_or_default();
+    tauri::async_runtime::spawn_blocking(move || mojuan_core::storage_usage(&cache_dir, &dir))
+        .await
+        .map_err(|e| format!("统计存储占用异常终止: {e}"))
+}
+
+/// 清空图片缓存（磁盘 + 内存表），不碰下载目录。
+#[tauri::command]
+pub async fn clear_image_cache() -> Result<(), String> {
+    let cache_dir = APP_CACHE_DIR.get().cloned().unwrap_or_default();
+    tauri::async_runtime::spawn_blocking(move || mojuan_core::clear_image_cache(&cache_dir))
+        .await
+        .map_err(|e| format!("清空图片缓存异常终止: {e}"))
+}
+
+/// 清空结果缓存（磁盘 + 内存表），不碰下载目录。
+#[tauri::command]
+pub async fn clear_result_cache() -> Result<(), String> {
+    let cache_dir = APP_CACHE_DIR.get().cloned().unwrap_or_default();
+    tauri::async_runtime::spawn_blocking(move || mojuan_core::clear_result_cache(&cache_dir))
+        .await
+        .map_err(|e| format!("清空结果缓存异常终止: {e}"))
+}
+
+/// 设置图片缓存上限（字节；0 表示不限制）并就地整理到上限以内。
+/// 前端启动时按设置里的值推一次，设置页改动时再推一次。
+#[tauri::command]
+pub async fn set_image_cache_limit(bytes: u64) -> Result<(), String> {
+    let cache_dir = APP_CACHE_DIR.get().cloned().unwrap_or_default();
+    tauri::async_runtime::spawn_blocking(move || {
+        mojuan_core::set_image_cache_limit(&cache_dir, bytes)
+    })
+    .await
+    .map_err(|e| format!("设置图片缓存上限异常终止: {e}"))
 }

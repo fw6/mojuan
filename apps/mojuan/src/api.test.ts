@@ -26,6 +26,10 @@ import {
     subscribeDownloads,
     webdavPut,
     webdavGet,
+    storageUsage,
+    clearImageCache,
+    clearResultCache,
+    setImageCacheLimit,
 } from "./api";
 
 const mockedInvoke = vi.mocked(invoke);
@@ -423,6 +427,42 @@ describe("下载任务队列 API（wayfinder #20/#22/#23）", () => {
         const channel = { id: 1 };
         await subscribeDownloads(channel as never);
         expect(mockedInvoke).toHaveBeenCalledWith("subscribe_downloads", { channel });
+    });
+});
+
+describe("存储占用与清理 API", () => {
+    it("storageUsage 把下载目录传给 storage_usage 并解析三项占用", async () => {
+        mockedInvoke.mockResolvedValue(
+            JSON.stringify({
+                image: { bytes: 100, count: 2 },
+                result: { bytes: 50, count: 1 },
+                download: { bytes: 200, count: 3 },
+            }),
+        );
+        await expect(storageUsage("/tmp/dl")).resolves.toEqual({
+            image: { bytes: 100, count: 2 },
+            result: { bytes: 50, count: 1 },
+            download: { bytes: 200, count: 3 },
+        });
+        expect(mockedInvoke).toHaveBeenCalledWith("storage_usage", { dir: "/tmp/dl" });
+    });
+
+    it("清空两个缓存各调各的命令", async () => {
+        mockedInvoke.mockResolvedValue(undefined);
+        await clearImageCache();
+        expect(mockedInvoke).toHaveBeenCalledWith("clear_image_cache");
+        await clearResultCache();
+        expect(mockedInvoke).toHaveBeenCalledWith("clear_result_cache");
+    });
+
+    it("setImageCacheLimit 把字节数传给命令（0 = 不限制）", async () => {
+        mockedInvoke.mockResolvedValue(undefined);
+        await setImageCacheLimit(0);
+        expect(mockedInvoke).toHaveBeenCalledWith("set_image_cache_limit", { bytes: 0 });
+        await setImageCacheLimit(1024 * 1024 * 1024);
+        expect(mockedInvoke).toHaveBeenCalledWith("set_image_cache_limit", {
+            bytes: 1024 * 1024 * 1024,
+        });
     });
 });
 

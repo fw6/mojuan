@@ -82,6 +82,35 @@ pub fn delete_downloaded(dir: &str, source: &str, comic_id: &str) -> Result<bool
     native::files::delete_downloaded(dir, source, comic_id)
 }
 
+/// 存储占用：图片缓存、结果缓存与下载三项的字节数与条数（下载那项是作品数）。
+/// `cache_dir` 是应用缓存目录，`download_dir` 是用户配置的下载目录；返回 JSON 字符串。
+pub fn storage_usage(cache_dir: &str, download_dir: &str) -> String {
+    let (image_bytes, image_count) = cache::usage(cache_dir);
+    let (result_bytes, result_count) = crawler::result_cache::usage(cache_dir);
+    let (download_bytes, download_comics) = native::files::download_usage(download_dir);
+    serde_json::json!({
+        "image": { "bytes": image_bytes, "count": image_count },
+        "result": { "bytes": result_bytes, "count": result_count },
+        "download": { "bytes": download_bytes, "count": download_comics },
+    })
+    .to_string()
+}
+
+/// 清空图片缓存：删掉磁盘上的条目并清空内存表（不碰下载目录）。
+pub fn clear_image_cache(cache_dir: &str) {
+    cache::clear(cache_dir);
+}
+
+/// 清空结果缓存：删掉磁盘上的条目并清空内存表（不碰下载目录）。
+pub fn clear_result_cache(cache_dir: &str) {
+    crawler::result_cache::clear(cache_dir);
+}
+
+/// 设置图片缓存上限（字节；0 表示不限制）并就地整理到上限以内。
+pub fn set_image_cache_limit(cache_dir: &str, bytes: u64) {
+    cache::set_limit(cache_dir, bytes);
+}
+
 // 下载运行时（wayfinder #20/#22）：队列状态机、并发、重试、取消与进度推送同处 core；
 // 宿主只接页面下载（core 已内置）与进度出口（构造时传入的回调）。
 pub use native::download::{DownloadRuntime, PageDownloader, ProgressSink, DEFAULT_WORKERS};
@@ -94,5 +123,44 @@ mod tests {
     #[test]
     fn version_is_correct() {
         assert_eq!(mojuan_version(), "mojuan-core-rust");
+    }
+
+    /// 占用统计给出三项；清空两个缓存不动下载目录（收藏、历史与进度在存储域，本就不受影响）。
+    #[test]
+    fn clearing_caches_leaves_downloads_alone() {
+        let _guard = util::test_lock();
+        let root = std::env::temp_dir().join(format!("mojuan-storage-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let cache_dir = root.join("cache");
+        let download_dir = root.join("downloads");
+        // 缓存目录里各摆一份图片条目与结果条目
+        std::fs::create_dir_all(cache_dir.join("imgs")).unwrap();
+        std::fs::write(cache_dir.join("imgs").join("a.img"), b"img").unwrap();
+        std::fs::create_dir_all(cache_dir.join("results")).unwrap();
+        std::fs::write(cache_dir.join("results").join("a.json"), b"{}").unwrap();
+        // 下载目录里摆一部作品
+        let chapter = download_dir.join("webtoons").join("c1").join("chapter_1");
+        std::fs::create_dir_all(&chapter).unwrap();
+        std::fs::write(chapter.join("0.jpg"), b"page").unwrap();
+
+        let (cache, downloads) = (cache_dir.to_str().unwrap(), download_dir.to_str().unwrap());
+        let before: serde_json::Value =
+            serde_json::from_str(&storage_usage(cache, downloads)).unwrap();
+        assert_eq!(before["image"]["count"], 1);
+        assert_eq!(before["result"]["count"], 1);
+        assert_eq!(before["download"]["count"], 1);
+        assert_eq!(before["download"]["bytes"], 4);
+
+        clear_image_cache(cache);
+        clear_result_cache(cache);
+
+        assert!(chapter.join("0.jpg").exists(), "清缓存不应删掉下载");
+        let after: serde_json::Value =
+            serde_json::from_str(&storage_usage(cache, downloads)).unwrap();
+        assert_eq!(after["image"]["count"], 0);
+        assert_eq!(after["result"]["count"], 0);
+        assert_eq!(after["download"]["count"], 1);
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

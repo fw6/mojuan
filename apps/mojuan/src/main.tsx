@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import { initImgProxy, setImgProxyDownloadDir } from "./api";
+import { initImgProxy, setImageCacheLimit, setImgProxyDownloadDir } from "./api";
 import { getSettings } from "./lib/storage/settings";
 import "./styles/beui.css";
 
@@ -13,12 +13,14 @@ async function bootstrap() {
     } catch (err) {
         console.error("initImgProxy failed", err);
     }
-    // 同步下载目录给代理（离线阅读按 url 查下载索引，wayfinder #31）
+    // 同步下载目录给代理（离线阅读按 url 查下载索引，wayfinder #31），
+    // 并把图片缓存上限推给 Rust（超出上限按最近使用时间淘汰）
     try {
         const s = await getSettings();
         if (s.downloadDir) setImgProxyDownloadDir(s.downloadDir);
+        await setImageCacheLimit(s.imageCacheLimit);
     } catch (err) {
-        console.error("init download dir failed", err);
+        console.error("init storage settings failed", err);
     }
     ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
         <React.StrictMode>
