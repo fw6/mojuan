@@ -9,7 +9,7 @@
 //! `{"at": <unix_ms>, "data": "<结果 JSON 字符串>"}`（data 以字符串保存，读取原样返回）。
 
 use crate::js::runtime;
-use crate::util::{hex, now_ms, Lru};
+use crate::util::{self, hex, now_ms, Lru};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -117,33 +117,12 @@ pub fn prune(cache_dir: &str, max_age: Duration) {
 
 /// 结果缓存占用：`results` 下 `.json` 的字节数与条数。
 pub fn usage(cache_dir: &str) -> (u64, usize) {
-    let Ok(entries) = std::fs::read_dir(results_dir(cache_dir)) else {
-        return (0, 0);
-    };
-    let mut bytes = 0u64;
-    let mut count = 0usize;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("json") {
-            continue;
-        }
-        if let Ok(meta) = entry.metadata() {
-            if meta.is_file() {
-                bytes += meta.len();
-                count += 1;
-            }
-        }
-    }
-    (bytes, count)
+    util::dir_usage(&results_dir(cache_dir), "json")
 }
 
 /// 清空结果缓存：删掉 `results` 下的全部文件并清空内存表。
 pub fn clear(cache_dir: &str) {
-    if let Ok(entries) = std::fs::read_dir(results_dir(cache_dir)) {
-        for entry in entries.flatten() {
-            let _ = std::fs::remove_file(entry.path());
-        }
-    }
+    util::clear_dir(&results_dir(cache_dir));
     LRU.clear();
 }
 

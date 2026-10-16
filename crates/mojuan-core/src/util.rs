@@ -1,11 +1,13 @@
-//! 跨模块共用的小工具：有界 LRU、十六进制编码、当前时间。
+//! 跨模块共用的小工具：有界 LRU、十六进制编码、当前时间、目录占用统计。
 //!
-//! 这几样都在两个以上地方用到（图片缓存与抓取结果缓存各要一套 LRU，安装包校验与缓存键各要
-//! 一次 hex，结果缓存与源错误各要一次 now_ms），收在这里一处实现、一处测试。
+//! 这几样都在两个以上地方用到（图片缓存与抓取结果缓存各要一套 LRU 与一份「目录里某种扩展名的
+//! 字节数与条数 + 清空目录」，安装包校验与缓存键各要一次 hex，结果缓存与源错误各要一次 now_ms），
+//! 收在这里一处实现、一处测试。
 
 use std::borrow::Borrow;
 use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
+use std::path::Path;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -90,6 +92,39 @@ pub(crate) fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// 目录里某种扩展名的文件（只看这一层）的字节数与条数；目录读不到按 `(0, 0)` 计。
+/// 图片缓存（`.img`）与结果缓存（`.json`）的占用统计共用这一份。
+pub(crate) fn dir_usage(dir: &Path, ext: &str) -> (u64, usize) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return (0, 0);
+    };
+    let mut bytes = 0u64;
+    let mut count = 0usize;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some(ext) {
+            continue;
+        }
+        if let Ok(meta) = entry.metadata() {
+            if meta.is_file() {
+                bytes += meta.len();
+                count += 1;
+            }
+        }
+    }
+    (bytes, count)
+}
+
+/// 清空目录：删掉目录下的全部文件（目录不存在或读不到都忽略）。
+/// 两个缓存的「清空」共用这一份；内存表由各自的调用方清。
+pub(crate) fn clear_dir(dir: &Path) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
 /// 测试里共用的一把锁：图片缓存、结果缓存与存储占用几个模块的用例都在同一进程里，
 /// 各自会清空进程内的 LRU 表或改动图片缓存上限，串行跑才不会互相清掉对方的条目。
 #[cfg(test)]
@@ -158,5 +193,39 @@ mod tests {
     fn now_ms_is_unix_milliseconds() {
         // 2020-09-13 之后的毫秒数：秒/毫秒换算写反时这里会失败
         assert!(now_ms() > 1_600_000_000_000);
+    }
+
+    /// 占用只统计指定扩展名的文件；目录不存在按空统计。
+    #[test]
+    fn dir_usage_counts_only_the_given_extension() {
+        let dir = std::env::temp_dir().join(format!("mojuan-util-usage-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.img"), vec![0u8; 7]).unwrap();
+        std::fs::write(dir.join("a.meta"), vec![0u8; 3]).unwrap();
+        std::fs::write(dir.join("b.img"), vec![0u8; 5]).unwrap();
+
+        assert_eq!(dir_usage(&dir, "img"), (12, 2));
+        assert_eq!(dir_usage(&dir, "meta"), (3, 1));
+        assert_eq!(dir_usage(&dir.join("absent"), "img"), (0, 0));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 清空目录：目录下的文件全删掉；目录不存在不报错。
+    #[test]
+    fn clear_dir_removes_every_file() {
+        let dir = std::env::temp_dir().join(format!("mojuan-util-clear-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.img"), b"x").unwrap();
+        std::fs::write(dir.join("b.json"), b"y").unwrap();
+
+        clear_dir(&dir);
+
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+        clear_dir(&dir.join("absent"));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -9,7 +9,7 @@
 //! 现在，淘汰时按它从旧到新删；`.img` 与配对的 `.meta` 一起删。
 
 use crate::crawler::http;
-use crate::util::Lru;
+use crate::util::{self, Lru};
 use base64::Engine;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -129,33 +129,12 @@ pub fn set_limit(cache_dir: &str, limit: u64) {
 
 /// 图片缓存占用：`.img` 的字节数与张数（`.meta` 不计）。
 pub fn usage(cache_dir: &str) -> (u64, usize) {
-    let Ok(entries) = std::fs::read_dir(imgs_dir(cache_dir)) else {
-        return (0, 0);
-    };
-    let mut bytes = 0u64;
-    let mut count = 0usize;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("img") {
-            continue;
-        }
-        if let Ok(meta) = entry.metadata() {
-            if meta.is_file() {
-                bytes += meta.len();
-                count += 1;
-            }
-        }
-    }
-    (bytes, count)
+    util::dir_usage(&imgs_dir(cache_dir), "img")
 }
 
 /// 清空图片缓存：删掉 `imgs` 下的全部文件并清空内存表。
 pub fn clear(cache_dir: &str) {
-    if let Ok(entries) = std::fs::read_dir(imgs_dir(cache_dir)) {
-        for entry in entries.flatten() {
-            let _ = std::fs::remove_file(entry.path());
-        }
-    }
+    util::clear_dir(&imgs_dir(cache_dir));
     LRU.clear();
     WRITTEN.store(0, Ordering::Relaxed);
 }
