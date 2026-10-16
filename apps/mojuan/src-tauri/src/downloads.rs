@@ -123,6 +123,71 @@ pub fn clear_downloads(runtime: tauri::State<'_, DownloadRuntime>) -> usize {
     runtime.clear_finished()
 }
 
+/// 补下一话缺失或损坏的页（存储页的「补下」）：有页清单的用清单里的页序，没有页清单的
+/// 旧下载从源取一次这一话的页表（`images` op，Referer 由前端给出）再重建页序，只把不完整的
+/// 页交给下载运行时入队。没有要补的页时什么都不入队。
+/// 返回 JSON `{"result": "queued"|"alreadyQueued"|"nothingToRepair", "pages": <要补的页数>, "progress": {...}|null}`。
+/// 取源页表会发网络请求，与算要补的页一起走阻塞线程。
+#[tauri::command]
+pub async fn repair_download(
+    runtime: tauri::State<'_, DownloadRuntime>,
+    dir: String,
+    source: String,
+    comic_id: String,
+    chapter_index: i64,
+    referer: String,
+) -> Result<String, String> {
+    let cache_dir = crate::APP_CACHE_DIR.get().cloned().unwrap_or_default();
+    let task = tauri::async_runtime::spawn_blocking(move || -> Result<_, String> {
+        let page_table = if mojuan_core::has_page_manifest(&dir, &source, &comic_id, chapter_index)
+        {
+            Vec::new()
+        } else {
+            let payload = serde_json::json!({
+                "comicId": comic_id.as_str(),
+                "chapterIndex": chapter_index,
+            })
+            .to_string();
+            let urls: Vec<String> =
+                serde_json::from_str(&mojuan_core::crawl("images", &source, &payload, &cache_dir))
+                    .unwrap_or_default();
+            if urls.is_empty() {
+                return Err(format!(
+                    "没有页清单，源也没有给出第 {} 话的页表",
+                    chapter_index + 1
+                ));
+            }
+            urls
+        };
+        Ok(mojuan_core::repair_task(
+            &dir,
+            &source,
+            &comic_id,
+            chapter_index,
+            &referer,
+            &page_table,
+        ))
+    })
+    .await
+    .map_err(|e| format!("补下任务异常终止: {e}"))??;
+    let Some(task) = task else {
+        return Ok(serde_json::json!({
+            "result": "nothingToRepair",
+            "pages": 0,
+            "progress": serde_json::Value::Null,
+        })
+        .to_string());
+    };
+    let pages = task.total();
+    let (result, progress) = runtime.enqueue(task);
+    Ok(serde_json::json!({
+        "result": result.as_str(),
+        "pages": pages,
+        "progress": progress,
+    })
+    .to_string())
+}
+
 /// 删除某部作品的下载：先取消并移除该作品在下载队列里的任务（在途的页等它写完），
 /// 再删磁盘上的整目录。队列被移除的记录经 `download://changed` 广播——进度通道
 /// 只能表达单任务的状态变化，表达不了「这个作品整个没了」，下载页据此重取快照。

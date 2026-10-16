@@ -7,13 +7,14 @@ import {
     downloadComics,
     imgSrc,
     readComicMeta,
+    repairDownload,
     type ChapterCheck,
     type ComicMeta,
     type DownloadCheck,
     type DownloadComic,
 } from "../api";
 import { getSettings } from "../lib/storage/settings";
-import { sourceTitle } from "../lib/sources";
+import { sourceReferer, sourceTitle } from "../lib/sources";
 import { usePageActive } from "../lib/page-active";
 import { chapterLabel } from "../lib/chapters";
 import { cn, formatBytes } from "../lib/utils";
@@ -371,10 +372,12 @@ function pageDetail(check: ChapterCheck): string {
     return parts.join(" · ");
 }
 
-/** 展开区：挂载即跑一次检查（展开就是要看结果），顶部是汇总与「重新检查」。 */
+/** 展开区：挂载即跑一次检查（展开就是要看结果），顶部是汇总、「补下缺失的页」与「重新检查」。 */
 function CheckPanel({ dir, item }: { dir: string; item: DownloadComic }) {
     const [report, setReport] = useState<DownloadCheck | null>(null);
     const [checking, setChecking] = useState(true);
+    const [repairing, setRepairing] = useState(false);
+    const [notice, setNotice] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [meta, setMeta] = useState<ComicMeta | null>(null);
 
@@ -410,6 +413,47 @@ function CheckPanel({ dir, item }: { dir: string; item: DownloadComic }) {
         };
     }, [dir, item.source, item.comicId]);
 
+    // 有问题的章节：缺页或损坏。没有页清单但每一页都在磁盘上的话不算有问题
+    const problemChapters =
+        report?.chapters.filter(
+            (check) => check.missing.length > 0 || check.broken.length > 0,
+        ) ?? [];
+
+    /** 逐话补下：入队的几话进度在下载页看，这里如实报出结果，不假装已经补完。 */
+    async function onRepair() {
+        if (problemChapters.length === 0) return;
+        setRepairing(true);
+        setNotice(null);
+        const referer = sourceReferer(item.source);
+        let queued = 0;
+        let nothing = 0;
+        let failure: string | null = null;
+        let failed = 0;
+        for (const check of problemChapters) {
+            try {
+                const out = await repairDownload({
+                    dir,
+                    source: item.source,
+                    comicId: item.comicId,
+                    chapterIndex: check.chapterIndex,
+                    referer,
+                });
+                if (out.result === "nothingToRepair") nothing += 1;
+                else queued += 1;
+            } catch (e) {
+                failed += 1;
+                failure ??= errorText(e);
+            }
+        }
+        setRepairing(false);
+        const parts: string[] = [];
+        if (queued > 0) parts.push(`已把 ${queued} 话加入下载队列`);
+        if (nothing > 0) parts.push(`${nothing} 话已无缺失`);
+        if (failed > 0) parts.push(`${failed} 话入队失败：${failure}`);
+        if (queued > 0) parts.push("进度到「下载」页查看");
+        setNotice(parts.join("，"));
+    }
+
     return (
         <div className="border-t border-border px-3.5 py-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -418,15 +462,30 @@ function CheckPanel({ dir, item }: { dir: string; item: DownloadComic }) {
                         ? `${report.chapters.length} 话 · 缺 ${report.missingPages} 页 · 损坏 ${report.brokenFiles} 个`
                         : "正在检查…"}
                 </span>
-                <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => void run()}
-                    disabled={checking}
-                >
-                    {checking ? "检查中…" : "重新检查"}
-                </Button>
+                <div className="flex items-center gap-2">
+                    {problemChapters.length > 0 && (
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => void onRepair()}
+                            disabled={checking || repairing}
+                        >
+                            {repairing
+                                ? "正在补下…"
+                                : `补下缺失的页（${problemChapters.length} 话）`}
+                        </Button>
+                    )}
+                    <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => void run()}
+                        disabled={checking}
+                    >
+                        {checking ? "检查中…" : "重新检查"}
+                    </Button>
+                </div>
             </div>
+            {notice && <p className="mt-1 text-xs text-muted-foreground">{notice}</p>}
             {checking ? (
                 <Loading label="正在检查完整性" />
             ) : error ? (

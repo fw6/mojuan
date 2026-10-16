@@ -329,6 +329,7 @@ function ChapterRow({
                     {chapterLabel(task.chapterTitle, task.chapterIndex)}
                 </span>
                 <div className="flex items-center gap-1.5">
+                    {task.repair && <Tag>补下</Tag>}
                     <AnimatedBadge
                         status={STATUS_BADGE[task.status]}
                         size="sm"

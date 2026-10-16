@@ -9,6 +9,7 @@ pub mod integrity;
 pub mod ota;
 pub mod page_manifest;
 pub mod queue;
+pub mod repair;
 pub mod webdav;
 
 mod paths;

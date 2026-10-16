@@ -23,6 +23,7 @@ import {
     cancelDownload,
     retryDownload,
     clearDownloads,
+    repairDownload,
     subscribeDownloads,
     webdavPut,
     webdavGet,
@@ -422,6 +423,47 @@ describe("下载任务队列 API（wayfinder #20/#22/#23）", () => {
         mockedInvoke.mockResolvedValue(2);
         await expect(clearDownloads()).resolves.toBe(2);
         expect(mockedInvoke).toHaveBeenCalledWith("clear_downloads");
+    });
+
+    it("repairDownload 把补下参数透传给 repair_download 并解析结果", async () => {
+        mockedInvoke.mockResolvedValue(
+            JSON.stringify({
+                result: "queued",
+                pages: 2,
+                progress: { taskId: "webtoons/a/1", status: "queued", done: 0, total: 2 },
+            }),
+        );
+        const out = await repairDownload({
+            dir: "/tmp/dl",
+            source: "webtoons",
+            comicId: "a",
+            chapterIndex: 1,
+            referer: "https://www.webtoons.com/",
+        });
+        expect(out.result).toBe("queued");
+        expect(out.pages).toBe(2);
+        expect(out.progress?.total).toBe(2);
+        expect(mockedInvoke).toHaveBeenCalledWith("repair_download", {
+            dir: "/tmp/dl",
+            source: "webtoons",
+            comicId: "a",
+            chapterIndex: 1,
+            referer: "https://www.webtoons.com/",
+        });
+
+        // 没有要补的页：没有入队的进度
+        mockedInvoke.mockResolvedValue(
+            JSON.stringify({ result: "nothingToRepair", pages: 0, progress: null }),
+        );
+        await expect(
+            repairDownload({
+                dir: "/tmp/dl",
+                source: "webtoons",
+                comicId: "a",
+                chapterIndex: 1,
+                referer: "",
+            }),
+        ).resolves.toEqual({ result: "nothingToRepair", pages: 0, progress: null });
     });
 
     it("subscribeDownloads 把 Channel 传给 subscribe_downloads", async () => {

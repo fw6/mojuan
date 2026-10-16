@@ -47,6 +47,8 @@ pub struct DownloadTaskView {
     pub status: TaskStatus,
     pub done: usize,
     pub total: usize,
+    /// 这是补下任务（只下不完整的页）：下载页据此在那一行显示「补下」。
+    pub repair: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -140,6 +142,7 @@ impl DownloadTask {
             status: self.status,
             done: self.done,
             total: self.total(),
+            repair: self.repair,
             error: self.error.clone(),
         }
     }
@@ -548,5 +551,17 @@ mod tests {
     #[test]
     fn task_id_format_matches_grilling_decision() {
         assert_eq!(task_id("webtoons", "c1", 3), "webtoons/c1/3");
+    }
+
+    /// 补下任务在任务视图里带修复标记（下载页据此在那一行显示「补下」）。
+    #[test]
+    fn a_repair_task_is_marked_in_the_view() {
+        let mut q = DownloadQueue::new();
+        q.enqueue(task("plain", 2), false);
+        q.enqueue(task("fix", 2).into_repair(vec![0]), false);
+
+        let views = q.snapshot();
+        assert!(!views[0].repair);
+        assert!(views[1].repair);
     }
 }

@@ -15,6 +15,7 @@ vi.mock("../api", () => ({
     setImageCacheLimit: vi.fn(),
     downloadComics: vi.fn(),
     checkDownload: vi.fn(),
+    repairDownload: vi.fn(),
     readComicMeta: vi.fn(),
     deleteDownloaded: vi.fn(),
     imgSrc: vi.fn((url: string) => url),
@@ -28,6 +29,7 @@ vi.mock("../lib/storage/settings", () => ({
 
 vi.mock("../lib/sources", () => ({
     sourceTitle: (id: string) => id,
+    sourceReferer: () => "https://ref/",
 }));
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -40,6 +42,7 @@ import {
     setImageCacheLimit,
     downloadComics,
     checkDownload,
+    repairDownload,
     readComicMeta,
     deleteDownloaded,
     imgSrc,
@@ -52,6 +55,7 @@ const mockedClearResult = vi.mocked(clearResultCache);
 const mockedSetLimit = vi.mocked(setImageCacheLimit);
 const mockedDownloadComics = vi.mocked(downloadComics);
 const mockedCheckDownload = vi.mocked(checkDownload);
+const mockedRepairDownload = vi.mocked(repairDownload);
 const mockedReadComicMeta = vi.mocked(readComicMeta);
 const mockedDeleteDownloaded = vi.mocked(deleteDownloaded);
 const mockedImgSrc = vi.mocked(imgSrc);
@@ -112,6 +116,7 @@ beforeEach(() => {
     });
     mockedReadComicMeta.mockResolvedValue(null);
     mockedDeleteDownloaded.mockResolvedValue(undefined);
+    mockedRepairDownload.mockResolvedValue({ result: "queued", pages: 2, progress: null });
     mockedConfirm.mockResolvedValue(true);
 });
 
@@ -455,5 +460,111 @@ describe("存储页的完整性检查", () => {
         fireEvent.click(screen.getByText("作品甲").closest("label")!);
         expect(screen.getByText("已选 1 部 · 合计 1.0 GB")).toBeTruthy();
         expect(mockedCheckDownload).not.toHaveBeenCalled();
+    });
+});
+
+describe("存储页的补下", () => {
+    const item = downloadComic({
+        source: "webtoons",
+        comicId: "c1",
+        title: "作品甲",
+        chapters: 3,
+        bytes: GB,
+    });
+
+    /** 一话的检查结果；只有 chapterIndex 必填。 */
+    function chapterCheck(
+        patch: Partial<ChapterCheck> & { chapterIndex: number },
+    ): ChapterCheck {
+        return { pages: 10, missing: [], broken: [], manifest: true, ...patch };
+    }
+
+    async function expandRow() {
+        renderStorage();
+        await screen.findByText("作品甲");
+        fireEvent.click(screen.getByText("作品甲").closest("button")!);
+    }
+
+    it("有问题的章节数大于 0 时出现补下按钮，点它逐话入队并说清去哪看进度", async () => {
+        mockedDownloadComics.mockResolvedValue([item]);
+        mockedCheckDownload.mockResolvedValue({
+            chapters: [
+                chapterCheck({ chapterIndex: 1, missing: [12, 13] }),
+                chapterCheck({ chapterIndex: 2, broken: [30] }),
+                chapterCheck({ chapterIndex: 3 }),
+            ],
+            missingPages: 2,
+            brokenFiles: 1,
+            unchecked: 0,
+        });
+
+        await expandRow();
+        const button = await screen.findByRole("button", { name: "补下缺失的页（2 话）" });
+        expect(mockedRepairDownload).not.toHaveBeenCalled();
+
+        fireEvent.click(button);
+
+        await waitFor(() => expect(mockedRepairDownload).toHaveBeenCalledTimes(2));
+        expect(mockedRepairDownload).toHaveBeenCalledWith({
+            dir: DOWNLOAD_DIR,
+            source: "webtoons",
+            comicId: "c1",
+            chapterIndex: 1,
+            referer: "https://ref/",
+        });
+        expect(mockedRepairDownload).toHaveBeenCalledWith({
+            dir: DOWNLOAD_DIR,
+            source: "webtoons",
+            comicId: "c1",
+            chapterIndex: 2,
+            referer: "https://ref/",
+        });
+        expect(
+            await screen.findByText("已把 2 话加入下载队列，进度到「下载」页查看"),
+        ).toBeTruthy();
+    });
+
+    it("每一话都正常时没有补下按钮", async () => {
+        mockedDownloadComics.mockResolvedValue([item]);
+        mockedCheckDownload.mockResolvedValue({
+            chapters: [
+                chapterCheck({ chapterIndex: 1 }),
+                chapterCheck({ chapterIndex: 2, manifest: false }),
+            ],
+            missingPages: 0,
+            brokenFiles: 0,
+            unchecked: 1,
+        });
+
+        await expandRow();
+        await screen.findByText("2 话 · 缺 0 页 · 损坏 0 个");
+
+        expect(screen.queryByRole("button", { name: /补下缺失的页/ })).toBeNull();
+        expect(mockedRepairDownload).not.toHaveBeenCalled();
+    });
+
+    it("没有要补的页与入队失败都如实说出来", async () => {
+        mockedDownloadComics.mockResolvedValue([item]);
+        mockedCheckDownload.mockResolvedValue({
+            chapters: [
+                chapterCheck({ chapterIndex: 1, missing: [0] }),
+                chapterCheck({ chapterIndex: 2, broken: [1] }),
+            ],
+            missingPages: 1,
+            brokenFiles: 1,
+            unchecked: 0,
+        });
+        mockedRepairDownload
+            .mockResolvedValueOnce({ result: "nothingToRepair", pages: 0, progress: null })
+            .mockRejectedValueOnce("没有页清单，源也没有给出第 2 话的页表");
+
+        await expandRow();
+        fireEvent.click(await screen.findByRole("button", { name: "补下缺失的页（2 话）" }));
+
+        expect(
+            await screen.findByText(
+                "1 话已无缺失，1 话入队失败：没有页清单，源也没有给出第 2 话的页表",
+            ),
+        ).toBeTruthy();
     });
 });

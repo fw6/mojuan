@@ -110,6 +110,25 @@ pub fn check_download(dir: &str, source: &str, comic_id: &str) -> String {
     native::integrity::check(dir, source, comic_id)
 }
 
+/// 这一话有没有页清单（补下据此决定要不要回源取页表）。只读本地文件。
+pub fn has_page_manifest(dir: &str, source: &str, comic_id: &str, chapter_index: i64) -> bool {
+    native::page_manifest::read(dir, source, comic_id, chapter_index).is_some()
+}
+
+/// 补下一话：算出这一话要补的页并建出修复任务。没有要补的页（每一页都完整）返回 `None`，
+/// 调用方据此返回「没有需要补的页」而不入队。
+/// 有页清单的用清单里的页序；没有的用 `page_table`（源给出的页表）重建页序。
+pub fn repair_task(
+    dir: &str,
+    source: &str,
+    comic_id: &str,
+    chapter_index: i64,
+    referer: &str,
+    page_table: &[String],
+) -> Option<DownloadTask> {
+    native::repair::task(dir, source, comic_id, chapter_index, referer, page_table)
+}
+
 /// 清空图片缓存：删掉磁盘上的条目并清空内存表（不碰下载目录）。
 pub fn clear_image_cache(cache_dir: &str) {
     cache::clear(cache_dir);

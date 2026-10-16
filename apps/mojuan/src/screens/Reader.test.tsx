@@ -492,6 +492,7 @@ function downloadTask(
         status,
         done: 0,
         total: 10,
+        repair: false,
     };
 }
 

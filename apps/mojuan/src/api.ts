@@ -186,6 +186,8 @@ export interface DownloadTaskView extends DownloadProgress {
     chapterIndex: number;
     /** 章节标题（源给的，如「第 12 话」）；话序号只是源内部的 id，不能当名字显示。 */
     chapterTitle: string;
+    /** 这是补下任务（只下不完整的页），下载页据此在那一行显示「补下」。 */
+    repair: boolean;
 }
 
 /** 入队结果（grilling #22 #4/#5 去重语义）。 */
@@ -236,6 +238,29 @@ export const retryDownload = (taskId: string): Promise<DownloadProgress | null> 
 
 /** 清空已完成（done/failed/cancelled），返回移除数量。 */
 export const clearDownloads = () => invoke<number>("clear_downloads");
+
+/** 补下一话的结果（`repair_download`）：没有要补的页时是 nothingToRepair，其余是入队结果。 */
+export type RepairResult = "queued" | "alreadyQueued" | "nothingToRepair";
+
+export interface RepairOutcome {
+    result: RepairResult;
+    /** 这一话要补的页数（nothingToRepair 时是 0）。 */
+    pages: number;
+    /** 入队后的任务进度；没有入队时为 null。 */
+    progress: DownloadProgress | null;
+}
+
+/** 补下一话缺失或损坏的页：有页清单的用清单里的页序，没有页清单的旧下载从源取一次这一话的
+ * 页表（Referer 由调用方用 `sourceReferer` 给出）再重建页序，只把不完整的页入队。
+ * 取源页表会发网络请求（Rust 侧走阻塞线程）。 */
+export const repairDownload = (params: {
+    dir: string;
+    source: string;
+    comicId: string;
+    chapterIndex: number;
+    referer: string;
+}): Promise<RepairOutcome> =>
+    invoke<string>("repair_download", params).then((json) => JSON.parse(json) as RepairOutcome);
 
 /** 删除某漫画的下载：磁盘上的整目录（含下载索引与全部章节）与该作品在下载队列里的记录。
  * 在途的章节先取消，等当前页写完才删目录。 */

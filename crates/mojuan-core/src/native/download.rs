@@ -889,4 +889,49 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// 补下一话跑到完成：只下缺的两页、页清单被重写成每页都有字节数、完整性检查再报正常。
+    #[test]
+    fn a_repaired_chapter_passes_the_integrity_check() {
+        let dir = temp_download_dir("repair-e2e");
+        let base = dir.to_str().unwrap();
+        let urls: Vec<String> = (0..4).map(|i| format!("https://x/{i}.jpg")).collect();
+        // 旧下载：第 1、3 页不在磁盘上，也没有页清单
+        let chapter = std::path::Path::new(base)
+            .join("webtoons")
+            .join("c1")
+            .join("chapter_1");
+        std::fs::create_dir_all(&chapter).unwrap();
+        std::fs::write(chapter.join("0.jpg"), vec![0u8; 10]).unwrap();
+        std::fs::write(chapter.join("2.jpg"), vec![0u8; 30]).unwrap();
+
+        let (_seen, sink) = collector();
+        let runtime = DownloadRuntime::with_downloader(
+            Box::new(|task: &DownloadTask, page: usize| {
+                write_placeholder(task, page, 20);
+                Ok(())
+            }),
+            sink,
+        );
+
+        let task =
+            crate::native::repair::task(base, "webtoons", "c1", 1, "https://ref/", &urls).unwrap();
+        assert_eq!(task.pending, vec![1, 3], "只补缺的两页");
+        runtime.enqueue(task);
+        runtime.run_task(take_next(&runtime));
+
+        let m = page_manifest::read(base, "webtoons", "c1", 1).unwrap();
+        assert!(
+            m.pages.iter().all(|p| p.bytes.is_some()),
+            "补完之后每页都要有字节数：{m:?}"
+        );
+
+        let report: serde_json::Value =
+            serde_json::from_str(&crate::native::integrity::check(base, "webtoons", "c1")).unwrap();
+        assert_eq!(report["chapters"][0]["manifest"], true);
+        assert_eq!(report["missingPages"], 0);
+        assert_eq!(report["brokenFiles"], 0);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

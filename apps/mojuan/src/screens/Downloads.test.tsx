@@ -43,6 +43,7 @@ function task(chapterIndex: number): DownloadTaskView {
         comicCover: "",
         chapterIndex,
         chapterTitle: `第 ${chapterIndex} 话`,
+        repair: false,
     };
 }
 
@@ -84,5 +85,18 @@ describe("下载页的组卡片", () => {
 
         expect(await screen.findByText("第 1 话")).toBeTruthy();
         expect(screen.queryByText("作品详情")).toBeNull();
+    });
+
+    it("补下任务的章节行带「补下」标签，普通任务不带", async () => {
+        mockedDownloads.mockResolvedValue([task(1), { ...task(2), repair: true }]);
+        renderDownloads();
+        await waitFor(() => expect(screen.getByText("作品甲")).toBeTruthy());
+
+        fireEvent.click(screen.getByRole("button", { name: "展开章节" }));
+
+        expect(await screen.findByText("第 2 话")).toBeTruthy();
+        expect(screen.getByText("补下")).toBeTruthy();
+        // 普通任务的章节行没有这个标签
+        expect(screen.getAllByText("补下")).toHaveLength(1);
     });
 });

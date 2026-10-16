@@ -21,6 +21,7 @@ const task = (
     status,
     done,
     total,
+    repair: false,
 });
 
 describe("groupDownloads（下载任务按漫画分组）", () => {
