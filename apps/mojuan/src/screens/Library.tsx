@@ -36,6 +36,7 @@ import { runFollowCheckNow, type FollowCheckFailure } from "../lib/follow-check"
 import { usePageActive } from "../lib/page-active";
 import { chapterLabel } from "../lib/chapters";
 import { getSettings } from "../lib/storage/settings";
+import { errorText } from "../lib/errors";
 import { comicKey } from "../lib/storage/store";
 import { cn } from "../lib/utils";
 import { EASE_OUT, SPRING_PANEL } from "../lib/ease";
@@ -415,13 +416,6 @@ export default function Library() {
                 ))}
         </div>
     );
-}
-
-/** 命令失败时的可读文案（Tauri 的 Err 是字符串，JS 侧异常是 Error）。 */
-function errorText(e: unknown): string {
-    if (typeof e === "string" && e) return e;
-    if (e instanceof Error && e.message) return e.message;
-    return "未知错误";
 }
 
 function sameComic(a: Comic, b: Comic): boolean {

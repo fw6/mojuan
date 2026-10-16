@@ -2,3 +2,10 @@
 export function errorFirstLine(message: string): string {
     return message.split("\n")[0];
 }
+
+/** 命令失败时的可读文案（Tauri 的 Err 是字符串，JS 侧异常是 Error）。 */
+export function errorText(e: unknown): string {
+    if (typeof e === "string" && e) return e;
+    if (e instanceof Error && e.message) return e.message;
+    return "未知错误";
+}
