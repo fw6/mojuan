@@ -8,6 +8,7 @@
 use crate::native::comic_meta;
 use crate::native::download_index;
 use crate::native::files;
+use crate::native::page_manifest;
 use crate::native::queue::{
     DownloadProgress, DownloadQueue, DownloadTask, DownloadTaskView, EnqueueResult,
 };
@@ -79,6 +80,7 @@ impl DownloadRuntime {
     /// 入队一话：已在磁盘 → 标 done 不入队；taskId 已在队列 → 不重复入队。
     /// 返回入队结果与该任务此刻的进度。
     /// 顺带把作品标题、封面与这一话的话名记进下载目录的作品元数据（书架列表据此显示）。
+    /// 修复入队跳过去重：要下的页已由调用方按磁盘现状算进 `pending`，没有要下的页才算完成。
     pub fn enqueue(&self, task: DownloadTask) -> (EnqueueResult, DownloadProgress) {
         comic_meta::record_chapter(
             &task.dir,
@@ -89,8 +91,11 @@ impl DownloadRuntime {
             task.chapter_index,
             &task.chapter_title,
         );
-        let already =
-            files::chapter_downloaded(&task.dir, &task.source, &task.comic_id, task.chapter_index);
+        let already = if task.repair {
+            task.pending.is_empty()
+        } else {
+            files::chapter_downloaded(&task.dir, &task.source, &task.comic_id, task.chapter_index)
+        };
         let (result, progress) = self.inner.queue.lock().unwrap().enqueue(task, already);
         self.emit(progress.clone());
         (result, progress)
@@ -147,23 +152,24 @@ impl DownloadRuntime {
         }
     }
 
-    /// 一话的下载流程：章内按页顺序，单页失败重试 `page_attempts` 次；
-    /// 每页开始前检查取消（取消由 cancel 或删除整部作品置位，worker 据此中止）。
-    /// 下载索引在整话结束时一次写入（`downloaded`）：逐页写的话两个 worker 的
-    /// 读—改—写会互相覆盖，落下的条目会让那一页在线读时回落到联网取图。
+    /// 一话的下载流程：按 `task.pending` 里的页顺序（普通入队是全部页，修复入队只有不完整的页），
+    /// 单页失败重试 `page_attempts` 次；每页开始前检查取消（取消由 cancel 或删除整部作品置位）。
+    /// 结束时写下载索引与页清单：逐页写的话两个 worker 的读—改—写会互相覆盖，
+    /// 落下的条目会让那一页在线读时回落到联网取图。
     fn run_task(&self, task: DownloadTask) {
         let id = task.task_id.clone();
         self.inner.in_flight.lock().unwrap().insert(id.clone());
         self.emit(task.to_progress()); // downloading
         let mut downloaded: Vec<(String, String)> = Vec::new();
-        for (page, url) in task.urls.iter().enumerate() {
+        for &pos in &task.pending {
             if self.inner.queue.lock().unwrap().is_cancelled(&id) {
                 break; // 已取消：状态已置 cancelled，不再下载后续页
             }
+            let entry = &task.pages[pos];
             let mut failure = String::new();
             let mut ok = false;
             for _ in 0..self.inner.page_attempts {
-                match (self.inner.downloader)(&task, page) {
+                match (self.inner.downloader)(&task, pos) {
                     Ok(()) => {
                         ok = true;
                         break;
@@ -173,8 +179,8 @@ impl DownloadRuntime {
             }
             if ok {
                 downloaded.push((
-                    url.clone(),
-                    files::page_rel_path(task.chapter_index, page as i64, url),
+                    entry.url.clone(),
+                    files::page_rel_path(task.chapter_index, entry.index, &entry.url),
                 ));
             }
             let progress = if ok {
@@ -184,7 +190,7 @@ impl DownloadRuntime {
                     .queue
                     .lock()
                     .unwrap()
-                    .mark_failed(&id, format!("第 {} 页下载失败：{failure}", page + 1))
+                    .mark_failed(&id, format!("第 {} 页下载失败：{failure}", entry.index + 1))
             };
             if let Some(progress) = progress {
                 self.emit(progress);
@@ -203,6 +209,15 @@ impl DownloadRuntime {
                 &downloaded,
             );
         }
+        // 页清单：这一话完整的页序 + 每页在磁盘上的字节数（没下到的记 null）。
+        let _ = page_manifest::write(
+            &task.dir,
+            &task.source,
+            &task.comic_id,
+            task.chapter_index,
+            &task.referer,
+            &task.pages,
+        );
         // 退出：清在途标记并唤醒等待者（删除整部作品的调用靠它确认页已写完）
         let mut in_flight = self.inner.in_flight.lock().unwrap();
         in_flight.remove(&id);
@@ -223,13 +238,14 @@ impl DownloadRuntime {
 
 /// 页面下载的生产实现：`<dir>/<source>/<comicId>/chapter_<n>/<page>.<ext>`。
 fn download_page(task: &DownloadTask, page: usize) -> Result<(), String> {
+    let entry = &task.pages[page];
     files::download_image(
-        &task.urls[page],
+        &entry.url,
         &task.dir,
         &task.source,
         &task.comic_id,
         task.chapter_index,
-        page as i64,
+        entry.index,
         &task.referer,
     )
 }
@@ -237,6 +253,7 @@ fn download_page(task: &DownloadTask, page: usize) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::native::page_manifest::PageEntry;
     use crate::native::queue::TaskStatus;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -257,7 +274,11 @@ mod tests {
             "第 1 话",
             dir,
             "",
-            (0..pages).map(|i| format!("https://x/{i}.jpg")).collect(),
+            PageEntry::from_urls(
+                &(0..pages)
+                    .map(|i| format!("https://x/{i}.jpg"))
+                    .collect::<Vec<_>>(),
+            ),
         )
     }
 
@@ -272,19 +293,30 @@ mod tests {
             "第 1 话",
             dir,
             "",
-            (0..pages)
-                .map(|i| format!("https://x/{chapter}/{i}.jpg"))
-                .collect(),
+            PageEntry::from_urls(
+                &(0..pages)
+                    .map(|i| format!("https://x/{chapter}/{i}.jpg"))
+                    .collect::<Vec<_>>(),
+            ),
         )
+    }
+
+    /// 按生产实现的命名在磁盘上落一个占位文件（下载器假的实现里用来让页清单有字节数）。
+    fn write_placeholder(task: &DownloadTask, page: usize, len: usize) {
+        let entry = &task.pages[page];
+        let rel = files::page_rel_path(task.chapter_index, entry.index, &entry.url);
+        let file = std::path::Path::new(&task.dir)
+            .join(&task.source)
+            .join(&task.comic_id)
+            .join(rel);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, vec![b'x'; len]).unwrap();
     }
 
     /// 临时的下载目录（每部作品一个子目录，用例结束自行清理）。
     fn temp_download_dir(tag: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "mojuan-dl-index-{}-{}",
-            tag,
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("mojuan-dl-index-{}-{}", tag, std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
     }
@@ -466,7 +498,8 @@ mod tests {
 
         runtime.enqueue(task(1, dir.to_str().unwrap()));
 
-        let meta = crate::native::comic_meta::read(dir.to_str().unwrap(), "webtoons", "c1").unwrap();
+        let meta =
+            crate::native::comic_meta::read(dir.to_str().unwrap(), "webtoons", "c1").unwrap();
         assert_eq!(meta.title, "标题");
         assert_eq!(meta.cover, "https://x/cover.jpg");
         assert_eq!(meta.chapters.get("1").map(String::as_str), Some("第 1 话"));
@@ -530,7 +563,7 @@ mod tests {
                     &task.dir,
                     &task.source,
                     &task.comic_id,
-                    &task.urls[0],
+                    &task.pages[0].url,
                 )
                 .is_some();
                 probe.lock().unwrap().push((page, found));
@@ -570,7 +603,8 @@ mod tests {
         let runtime = DownloadRuntime::with_downloader(
             Box::new(|task: &DownloadTask, page: usize| {
                 // 按生产实现的命名落一个占位文件，顺带核对相对路径的算法一致
-                let rel = files::page_rel_path(task.chapter_index, page as i64, &task.urls[page]);
+                let entry = &task.pages[page];
+                let rel = files::page_rel_path(task.chapter_index, entry.index, &entry.url);
                 let file = std::path::Path::new(&task.dir)
                     .join(&task.source)
                     .join(&task.comic_id)
@@ -590,16 +624,17 @@ mod tests {
         });
 
         for task in [&first, &second] {
-            for url in &task.urls {
+            for entry in &task.pages {
                 assert!(
                     download_index::find_downloaded_file(
                         dir.to_str().unwrap(),
                         "webtoons",
                         "c1",
-                        url
+                        &entry.url
                     )
                     .is_some(),
-                    "{url} 的条目被另一话的写入覆盖了"
+                    "{} 的条目被另一话的写入覆盖了",
+                    entry.url
                 );
             }
         }
@@ -643,7 +678,9 @@ mod tests {
         let dir = temp_download_dir("real");
         let (_seen, sink) = collector();
         let runtime = DownloadRuntime::new(sink);
-        let urls: Vec<String> = (0..2).map(|i| format!("http://127.0.0.1:{port}/{i}.jpg")).collect();
+        let urls: Vec<String> = (0..2)
+            .map(|i| format!("http://127.0.0.1:{port}/{i}.jpg"))
+            .collect();
 
         runtime.enqueue(DownloadTask::new(
             "webtoons",
@@ -654,7 +691,7 @@ mod tests {
             "第 1 话",
             dir.to_str().unwrap(),
             "",
-            urls.clone(),
+            PageEntry::from_urls(&urls),
         ));
         runtime.run_task(take_next(&runtime));
 
@@ -669,6 +706,186 @@ mod tests {
                 "{url} 的索引条目"
             );
         }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 一话结束写页清单：完整的页序 + 每页在磁盘上的字节数（下失败的页记 null）+ Referer。
+    #[test]
+    fn a_finished_chapter_writes_a_page_manifest() {
+        let dir = temp_download_dir("manifest");
+        let (_seen, sink) = collector();
+        let runtime = DownloadRuntime::with_downloader(
+            Box::new(|task: &DownloadTask, page: usize| {
+                if page == 1 {
+                    return Err("HTTP 500".to_string());
+                }
+                write_placeholder(task, page, page + 1);
+                Ok(())
+            }),
+            sink,
+        );
+
+        runtime.enqueue(DownloadTask::new(
+            "webtoons",
+            "c1",
+            "标题",
+            "",
+            1,
+            "第 1 话",
+            dir.to_str().unwrap(),
+            "https://ref/",
+            PageEntry::from_urls(
+                &(0..3)
+                    .map(|i| format!("https://x/{i}.jpg"))
+                    .collect::<Vec<_>>(),
+            ),
+        ));
+        runtime.run_task(take_next(&runtime));
+
+        let m = page_manifest::read(dir.to_str().unwrap(), "webtoons", "c1", 1).unwrap();
+        assert_eq!(m.referer, "https://ref/");
+        assert_eq!(m.pages.len(), 3);
+        assert_eq!(m.pages[0].url, "https://x/0.jpg");
+        assert_eq!(m.pages[0].bytes, Some(1)); // 第 0 页写了 1 字节
+        assert_eq!(m.pages[1].bytes, None); // 第 1 页失败
+        assert_eq!(m.pages[2].bytes, None); // 失败后不再开始
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 修复入队不被「话已在磁盘」的章级去重挡住：还有页要补就得排队。
+    #[test]
+    fn repair_enqueue_is_not_short_circuited_by_chapter_downloaded() {
+        let dir = temp_download_dir("repair-dedup");
+        let base = dir.to_str().unwrap();
+        let chapter = std::path::Path::new(base)
+            .join("webtoons")
+            .join("c1")
+            .join("chapter_1");
+        std::fs::create_dir_all(&chapter).unwrap();
+        std::fs::write(chapter.join("0.jpg"), b"x").unwrap(); // 有页 → chapter_downloaded = true
+        assert!(files::chapter_downloaded(base, "webtoons", "c1", 1));
+
+        let (_seen, sink) = collector();
+        let runtime = DownloadRuntime::with_downloader(
+            Box::new(|_task: &DownloadTask, _page: usize| Ok(())),
+            sink,
+        );
+        let urls = vec!["https://x/0.jpg".to_string(), "https://x/1.jpg".to_string()];
+        let task = DownloadTask::new(
+            "webtoons",
+            "c1",
+            "标题",
+            "",
+            1,
+            "第 1 话",
+            base,
+            "",
+            PageEntry::from_urls(&urls),
+        )
+        .into_repair(vec![1]);
+
+        let (result, p) = runtime.enqueue(task);
+        assert_eq!(result, EnqueueResult::Queued);
+        assert_eq!(p.status, TaskStatus::Queued);
+        assert_eq!(p.total, 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 修复只下不完整的页：任务携带完整页序、只下那两页；跑完页清单重写成每页都有字节数；
+    /// 再跑一次没有可补的页。
+    #[test]
+    fn a_repair_task_downloads_only_the_missing_pages_and_rewrites_the_manifest() {
+        let dir = temp_download_dir("repair");
+        let base = dir.to_str().unwrap();
+        let urls: Vec<String> = (0..4).map(|i| format!("https://x/{i}.jpg")).collect();
+        let pages = PageEntry::from_urls(&urls);
+        // 旧下载：第 0、2 页在磁盘上，第 1、3 页缺，页清单记着当时的样子
+        let chapter = std::path::Path::new(base)
+            .join("webtoons")
+            .join("c1")
+            .join("chapter_1");
+        std::fs::create_dir_all(&chapter).unwrap();
+        std::fs::write(chapter.join("0.jpg"), vec![0u8; 10]).unwrap();
+        std::fs::write(chapter.join("2.jpg"), vec![0u8; 30]).unwrap();
+        assert!(page_manifest::write(
+            base,
+            "webtoons",
+            "c1",
+            1,
+            "https://old/",
+            &pages
+        ));
+
+        let pending = |base: &str| -> Vec<usize> {
+            (0..4)
+                .filter(|&i| {
+                    !page_manifest::page_complete(base, "webtoons", "c1", 1, i as i64, &urls[i])
+                })
+                .collect()
+        };
+        assert_eq!(pending(base), vec![1, 3]);
+
+        let (_seen, sink) = collector();
+        let downloaded_pages = Arc::new(Mutex::new(Vec::new()));
+        let spy = downloaded_pages.clone();
+        let runtime = DownloadRuntime::with_downloader(
+            Box::new(move |task: &DownloadTask, page: usize| {
+                spy.lock().unwrap().push(page);
+                write_placeholder(task, page, 100 + page);
+                Ok(())
+            }),
+            sink,
+        );
+
+        let task = DownloadTask::new(
+            "webtoons",
+            "c1",
+            "标题",
+            "",
+            1,
+            "第 1 话",
+            base,
+            "https://ref/",
+            pages,
+        )
+        .into_repair(pending(base));
+        let (result, _) = runtime.enqueue(task);
+        assert_eq!(result, EnqueueResult::Queued);
+        runtime.run_task(take_next(&runtime));
+
+        assert_eq!(*downloaded_pages.lock().unwrap(), vec![1, 3]);
+        let m = page_manifest::read(base, "webtoons", "c1", 1).unwrap();
+        assert_eq!(m.referer, "https://ref/");
+        assert!(
+            m.pages.iter().all(|p| p.bytes.is_some()),
+            "补完之后每页都要有字节数：{m:?}"
+        );
+        assert_eq!(m.pages[0].bytes, Some(10)); // 已完整的页保留原样
+        assert_eq!(m.pages[1].bytes, Some(101));
+        assert_eq!(m.pages[2].bytes, Some(30));
+        assert_eq!(m.pages[3].bytes, Some(103));
+        assert!(pending(base).is_empty());
+
+        // 再跑一次没有可补的页：直接完成，不再下载
+        let task = DownloadTask::new(
+            "webtoons",
+            "c1",
+            "标题",
+            "",
+            1,
+            "第 1 话",
+            base,
+            "https://ref/",
+            PageEntry::from_urls(&urls),
+        )
+        .into_repair(pending(base));
+        let (result, p) = runtime.enqueue(task);
+        assert_eq!(result, EnqueueResult::AlreadyDownloaded);
+        assert_eq!(p.status, TaskStatus::Done);
+        assert!(runtime.inner.queue.lock().unwrap().next_queued().is_none());
 
         let _ = std::fs::remove_dir_all(&dir);
     }

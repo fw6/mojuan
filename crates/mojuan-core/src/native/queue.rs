@@ -5,6 +5,7 @@
 //! 内存态不持久化（重启清空）。
 //! 并发（全局 2 页、章内顺序）、重试、取消检查与进度推送在 `native::download` 的运行时。
 
+use crate::native::page_manifest::PageEntry;
 use serde::Serialize;
 use std::collections::HashSet;
 
@@ -50,7 +51,8 @@ pub struct DownloadTaskView {
     pub error: Option<String>,
 }
 
-/// 一个下载任务 = 一话（页 URL 入队时快照，之后不变）。
+/// 一个下载任务 = 一话。`pages` 是这一话完整的页序（写页清单用）；`pending` 是本次要下载
+/// 的页在 `pages` 里的下标——普通入队是全部、修复入队只含不完整的页。
 #[derive(Clone)]
 pub struct DownloadTask {
     pub task_id: String,
@@ -62,14 +64,16 @@ pub struct DownloadTask {
     pub chapter_title: String,
     pub dir: String,
     pub referer: String,
-    pub urls: Vec<String>,
+    pub pages: Vec<PageEntry>,
+    pub pending: Vec<usize>,
+    pub repair: bool,
     pub done: usize,
     pub status: TaskStatus,
     pub error: Option<String>,
 }
 
 impl DownloadTask {
-    /// 一话的下载任务：taskId 由 `source/comicId/chapterIndex` 派生，状态从 queued 起。
+    /// 一话的普通下载任务：下全部页。taskId 由 `source/comicId/chapterIndex` 派生，状态从 queued 起。
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         source: &str,
@@ -80,8 +84,9 @@ impl DownloadTask {
         chapter_title: &str,
         dir: &str,
         referer: &str,
-        urls: Vec<String>,
+        pages: Vec<PageEntry>,
     ) -> Self {
+        let pending = (0..pages.len()).collect();
         Self {
             task_id: task_id(source, comic_id, chapter_index),
             source: source.to_string(),
@@ -92,15 +97,25 @@ impl DownloadTask {
             chapter_title: chapter_title.to_string(),
             dir: dir.to_string(),
             referer: referer.to_string(),
-            urls,
+            pages,
+            pending,
+            repair: false,
             done: 0,
             status: TaskStatus::Queued,
             error: None,
         }
     }
 
+    /// 转成修复任务：`pages` 仍是这一话完整的页序（写页清单用），只下 `pending` 里的页
+    /// （`pages` 的下标，由调用方按「这一页是否完整」算出来）。
+    pub fn into_repair(mut self, pending: Vec<usize>) -> Self {
+        self.pending = pending;
+        self.repair = true;
+        self
+    }
+
     pub fn total(&self) -> usize {
-        self.urls.len()
+        self.pending.len()
     }
 
     pub fn to_progress(&self) -> DownloadProgress {
@@ -175,13 +190,23 @@ impl DownloadQueue {
 
     /// 入队：taskId 已存在 → AlreadyQueued；`already_downloaded`（调用方查磁盘）
     /// → 标 done 不入队；否则 Queued。返回结果与任务当前进度。
+    /// 修复入队（`task.repair`）顶掉同一话已有的终态记录：否则同一个 taskId 会被判成
+    /// 重复入队而什么都不做。
     pub fn enqueue(
         &mut self,
         task: DownloadTask,
         already_downloaded: bool,
     ) -> (EnqueueResult, DownloadProgress) {
-        if let Some(existing) = self.tasks.iter().find(|t| t.task_id == task.task_id) {
-            return (EnqueueResult::AlreadyQueued, existing.to_progress());
+        if let Some(pos) = self.tasks.iter().position(|t| t.task_id == task.task_id) {
+            let terminal = matches!(
+                self.tasks[pos].status,
+                TaskStatus::Done | TaskStatus::Failed | TaskStatus::Cancelled
+            );
+            if !(task.repair && terminal) {
+                let existing = &self.tasks[pos];
+                return (EnqueueResult::AlreadyQueued, existing.to_progress());
+            }
+            self.tasks.remove(pos);
         }
         self.cancelled.remove(&task.task_id);
         if already_downloaded {
@@ -228,10 +253,7 @@ impl DownloadQueue {
     /// 取消任务（排队/下载中 → cancelled；其余原样返回）。
     pub fn cancel(&mut self, task_id: &str) -> Option<DownloadProgress> {
         let task = self.tasks.iter_mut().find(|t| t.task_id == task_id)?;
-        if matches!(
-            task.status,
-            TaskStatus::Queued | TaskStatus::Downloading
-        ) {
+        if matches!(task.status, TaskStatus::Queued | TaskStatus::Downloading) {
             task.status = TaskStatus::Cancelled;
             self.cancelled.insert(task_id.to_string());
         }
@@ -253,9 +275,8 @@ impl DownloadQueue {
     /// 清空已完成（done/failed/cancelled），返回移除数量。
     pub fn clear_finished(&mut self) -> usize {
         let before = self.tasks.len();
-        self.tasks.retain(|t| {
-            matches!(t.status, TaskStatus::Queued | TaskStatus::Downloading)
-        });
+        self.tasks
+            .retain(|t| matches!(t.status, TaskStatus::Queued | TaskStatus::Downloading));
         before - self.tasks.len()
     }
 
@@ -302,7 +323,13 @@ mod tests {
             chapter_title: "第 1 话".to_string(),
             dir: "/tmp/dl".to_string(),
             referer: String::new(),
-            urls: (0..pages).map(|i| format!("https://x/{i}.jpg")).collect(),
+            pages: PageEntry::from_urls(
+                &(0..pages)
+                    .map(|i| format!("https://x/{i}.jpg"))
+                    .collect::<Vec<_>>(),
+            ),
+            pending: (0..pages).collect(),
+            repair: false,
             done: 0,
             status: TaskStatus::Queued,
             error: None,
@@ -339,6 +366,35 @@ mod tests {
         assert_eq!(p.status, TaskStatus::Done);
         assert_eq!(p.done, 3);
         assert_eq!(p.total, 3);
+    }
+
+    #[test]
+    fn repair_enqueue_replaces_a_terminal_record() {
+        let mut q = DownloadQueue::new();
+        q.enqueue(task("a", 2), true); // 已完成（done）的记录
+
+        // 普通入队：同一 taskId 仍在 → 重复入队，什么都不做
+        let (result, _) = q.enqueue(task("a", 2), false);
+        assert_eq!(result, EnqueueResult::AlreadyQueued);
+
+        // 修复入队：顶掉终态记录，重新排队，只下不完整的那一页
+        let (result, p) = q.enqueue(task("a", 2).into_repair(vec![1]), false);
+        assert_eq!(result, EnqueueResult::Queued);
+        assert_eq!(p.status, TaskStatus::Queued);
+        assert_eq!(p.total, 1);
+        assert_eq!(q.snapshot().len(), 1);
+        assert_eq!(q.next_queued().unwrap().task_id, "a");
+    }
+
+    #[test]
+    fn repair_enqueue_keeps_an_in_flight_record() {
+        let mut q = DownloadQueue::new();
+        q.enqueue(task("a", 2), false); // queued
+
+        let (result, p) = q.enqueue(task("a", 2).into_repair(vec![0]), false);
+        assert_eq!(result, EnqueueResult::AlreadyQueued);
+        assert_eq!(p.status, TaskStatus::Queued);
+        assert_eq!(q.snapshot().len(), 1);
     }
 
     #[test]

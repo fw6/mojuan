@@ -21,6 +21,11 @@ fn chapter_index_from_dir_name(name: &str) -> Option<i64> {
     name.strip_prefix("chapter_")?.parse().ok()
 }
 
+/// 一话的目录（`<dir>/<source>/<comicId>/chapter_<n>`）。
+pub(crate) fn chapter_dir(dir: &str, source: &str, comic_id: &str, chapter_index: i64) -> PathBuf {
+    comic_dir(dir, source, comic_id).join(chapter_dir_name(chapter_index))
+}
+
 /// 取 URL 最后一个 '.' 后的后缀（最多 5 字符，无 '.' 时回退 "jpg"），对应 Kotlin substringAfterLast('.', "jpg").take(5)。
 fn extension_from_url(url: &str) -> String {
     let after = match url.rfind('.') {
@@ -36,11 +41,13 @@ fn extension_from_url(url: &str) -> String {
 }
 
 /// 该章节是否已在磁盘（下载队列去重：入队即 done，grilling #22 #4）。
-/// 章节目录存在且至少含一个文件才算已下载。
+/// 章节目录存在且至少含一个页文件才算已下载；页清单（`.pages.json`）是元数据，
+/// 只有它、没有页的话不算已下载。
 pub fn chapter_downloaded(dir: &str, source: &str, comic_id: &str, chapter_index: i64) -> bool {
-    let chapter = comic_dir(dir, source, comic_id).join(chapter_dir_name(chapter_index));
-    match fs::read_dir(&chapter) {
-        Ok(mut it) => it.by_ref().any(|e| e.is_ok()),
+    match fs::read_dir(chapter_dir(dir, source, comic_id, chapter_index)) {
+        Ok(entries) => entries
+            .flatten()
+            .any(|e| !e.file_name().to_string_lossy().starts_with('.')),
         Err(_) => false,
     }
 }
@@ -58,6 +65,8 @@ pub fn page_rel_path(chapter_index: i64, page_index: i64, url: &str) -> String {
 
 /// 下载单张图片到 `<dir>/<source>/<comicId>/chapter_<n>/<page>.<ext>`。
 /// referer 非空时带上（热链域如 pstatic.net 需要，research #4）；失败返回原因（HTTP 状态、写盘错误）。
+/// 响应不是图片（Content-Type 既不是 `image/*` 也不以 `octet-stream` 结尾）时判这一页失败、
+/// 不写磁盘：站点的错误页因此不会以 `.jpg` 的名字进库。
 /// 下载索引由下载运行时在整话结束时一次写入（`download_index::record_downloads`）。
 pub fn download_image(
     url: &str,
@@ -72,12 +81,28 @@ pub fn download_image(
     if !referer.is_empty() {
         headers.push(("Referer", referer));
     }
-    let bytes = http::get_bytes(url, &headers)?;
+    let (bytes, content_type) = http::get_bytes_with_type(url, &headers)?;
+    if !is_image_content_type(&content_type) {
+        return Err(format!(
+            "站点返回的不是图片（Content-Type: {content_type}）"
+        ));
+    }
     let file = comic_dir(dir, source, comic_id).join(page_rel_path(chapter_index, page_index, url));
     let parent = file.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent).map_err(|e| format!("创建 {} 失败: {e}", parent.display()))?;
     fs::write(&file, bytes).map_err(|e| format!("写入 {} 失败: {e}", file.display()))?;
     Ok(())
+}
+
+/// Content-Type 是否为图片：媒体类型是 `image/*` 或以 `octet-stream` 结尾（带参数时看分号前）。
+fn is_image_content_type(content_type: &str) -> bool {
+    let media = content_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    media.starts_with("image/") || media.ends_with("octet-stream")
 }
 
 /// 已下载章节文件列表：`{chapterIndex: [{"url": "...", "path": "relative/path"}]}`（按文件名排序）。
@@ -452,6 +477,94 @@ mod tests {
         .unwrap();
 
         assert_eq!(download_usage(dir.to_str().unwrap()), (35, 2));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 极简 HTTP 服务器：任何路径都返回同一份体与给定的 Content-Type。
+    fn spawn_server(content_type: &'static str, body: &'static [u8]) -> u16 {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().take(4) {
+                let Ok(mut stream) = stream else { break };
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf);
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(head.as_bytes());
+                let _ = stream.write_all(body);
+                let _ = stream.flush();
+            }
+        });
+        port
+    }
+
+    #[test]
+    fn download_image_rejects_a_non_image_content_type() {
+        let port = spawn_server("text/html", b"<html>nope</html>");
+        let dir = temp_dir("content-type");
+        let base = dir.to_str().unwrap();
+        let url = format!("http://127.0.0.1:{port}/0.jpg");
+
+        let err = download_image(&url, base, "webtoons", "c1", 1, 0, "").unwrap_err();
+        assert!(
+            err.contains("text/html"),
+            "错误原因要可读并带上 Content-Type：{err}"
+        );
+        // 磁盘上不能留下文件（更不能用 .jpg 的名字把错误页存下来）
+        assert!(!dir
+            .join("webtoons")
+            .join("c1")
+            .join("chapter_1")
+            .join("0.jpg")
+            .exists());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn download_image_accepts_an_octet_stream_content_type() {
+        let port = spawn_server("application/octet-stream", b"bytes");
+        let dir = temp_dir("octet");
+        let base = dir.to_str().unwrap();
+        let url = format!("http://127.0.0.1:{port}/0.jpg");
+
+        assert_eq!(
+            download_image(&url, base, "webtoons", "c1", 1, 0, ""),
+            Ok(())
+        );
+        assert_eq!(
+            fs::read(
+                dir.join("webtoons")
+                    .join("c1")
+                    .join("chapter_1")
+                    .join("0.jpg")
+            )
+            .unwrap(),
+            b"bytes"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn chapter_downloaded_ignores_dot_files() {
+        let dir = temp_dir("downloaded-dot");
+        let base = dir.to_str().unwrap();
+        let chapter = chapter_dir(base, "webtoons", "c1", 1);
+        fs::create_dir_all(&chapter).unwrap();
+
+        // 只有页清单：没有页，不算已下载
+        fs::write(chapter.join(".pages.json"), b"{}").unwrap();
+        assert!(!chapter_downloaded(base, "webtoons", "c1", 1));
+        // 有一页 → 已下载
+        fs::write(chapter.join("0.jpg"), b"x").unwrap();
+        assert!(chapter_downloaded(base, "webtoons", "c1", 1));
+
         let _ = fs::remove_dir_all(&dir);
     }
 }
