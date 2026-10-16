@@ -1,0 +1,21 @@
+crates/mojuan-core/src/js/runtime.rs
+  s_9c3a45c3f60849::t_a9260d883fe44f 39-45
+crates/mojuan-core/src/js/mod.rs
+  s_9c3a45c3f60849::t_fd954413342e13 146-147,149
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.50-trip",
+  "base_commit_sha": "d3ca58a50aef329918b1b30635e8bda399c77c09",
+  "prompts": {},
+  "sessions": {
+    "s_9c3a45c3f60849": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_1998233a-926a-4378-8afd-872eb9349b63",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
