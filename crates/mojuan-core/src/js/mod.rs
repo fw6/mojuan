@@ -143,8 +143,10 @@ mod tests {
         <div class="item" data-id="2"><h3>电锯人</h3><img src="https://img.example.com/2.webp"></div>
     "#;
 
+    /// plan/parse 契约用内置运行时求值：`source()` 取的是当前生效的版本，
+    /// 覆盖版本是全局状态，别的用例会在测试中间把它换掉（见 `runtime::bundled`）。
     fn script() -> String {
-        format!("var DOC = {MINI_DOC};\n{}", runtime::source())
+        format!("var DOC = {MINI_DOC};\n{}", runtime::bundled())
     }
 
     fn plan(op: &str, payload: &str, responses: &str) -> Value {

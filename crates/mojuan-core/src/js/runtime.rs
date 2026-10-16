@@ -36,6 +36,13 @@ pub fn fingerprint() -> String {
     hex(hasher.finalize().as_slice())[..16].to_string()
 }
 
+/// 内置运行时源码。测试里求值 plan/parse 契约时用这一份：`source()` 取的是当前生效的
+/// 版本，而覆盖版本是全局状态，别的用例会在测试中间把它换掉。
+#[cfg(test)]
+pub(crate) fn bundled() -> &'static str {
+    BUNDLED
+}
+
 /// 内置运行时的 sha256（源仓库比对与测试用）。
 pub fn bundled_fingerprint() -> String {
     let mut hasher = Sha256::new();

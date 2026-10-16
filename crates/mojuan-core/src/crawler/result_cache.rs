@@ -197,8 +197,15 @@ mod tests {
         LRU.clear();
     }
 
+    /// 串行锁：这些用例读全局的运行时版本标识（缓存键含它），
+    /// `runtime_change_invalidates` 会在测试中间换掉运行时，不串行会偶发未命中。
+    fn serial() -> std::sync::MutexGuard<'static, ()> {
+        crate::crawler::registry::test_lock()
+    }
+
     #[test]
     fn put_then_get_hits_memory() {
+        let _serial = serial();
         let dir = temp_dir("memory");
         let d = dir.to_str().unwrap();
         put(
@@ -217,6 +224,7 @@ mod tests {
 
     #[test]
     fn disk_hit_after_lru_clear() {
+        let _serial = serial();
         let dir = temp_dir("disk");
         let d = dir.to_str().unwrap();
         put(
@@ -235,6 +243,7 @@ mod tests {
 
     #[test]
     fn missing_returns_none() {
+        let _serial = serial();
         let dir = temp_dir("missing");
         let d = dir.to_str().unwrap();
         assert!(get(d, "webtoons", "search", r#"{"keyword":"x"}"#, "s3").is_none());
@@ -243,12 +252,14 @@ mod tests {
 
     #[test]
     fn empty_cache_dir_disables_cache() {
+        let _serial = serial();
         put("", "webtoons", "category", "{}", "s4", r#"[]"#);
         assert!(get("", "webtoons", "category", "{}", "s4").is_none());
     }
 
     #[test]
     fn empty_artifact_disables_cache() {
+        let _serial = serial();
         let dir = temp_dir("noartifact");
         let d = dir.to_str().unwrap();
         put(d, "webtoons", "category", "{}", "", r#"["a"]"#);
@@ -258,6 +269,7 @@ mod tests {
 
     #[test]
     fn non_cacheable_op_not_stored() {
+        let _serial = serial();
         let dir = temp_dir("nocache");
         let d = dir.to_str().unwrap();
         put(
@@ -274,6 +286,7 @@ mod tests {
 
     #[test]
     fn payload_key_order_normalized() {
+        let _serial = serial();
         let dir = temp_dir("keyorder");
         let d = dir.to_str().unwrap();
         put(
@@ -297,6 +310,7 @@ mod tests {
 
     #[test]
     fn artifact_change_invalidates() {
+        let _serial = serial();
         let dir = temp_dir("artifact");
         let d = dir.to_str().unwrap();
         put(d, "webtoons", "category", "{}", "doc-v1", r#"["a"]"#);
@@ -325,6 +339,7 @@ mod tests {
 
     #[test]
     fn corrupt_file_treated_as_miss_and_removed() {
+        let _serial = serial();
         let dir = temp_dir("corrupt");
         let d = dir.to_str().unwrap();
         put(d, "webtoons", "category", "{}", "s7", r#"["a"]"#);
@@ -344,6 +359,7 @@ mod tests {
 
     #[test]
     fn prune_removes_stale_keeps_fresh() {
+        let _serial = serial();
         let dir = temp_dir("prune");
         let d = dir.to_str().unwrap();
         put(d, "webtoons", "category", "{}", "s8", r#"["a"]"#);
@@ -359,6 +375,7 @@ mod tests {
 
     #[test]
     fn usage_counts_json_entries() {
+        let _serial = serial();
         let dir = temp_dir("usage");
         let d = dir.to_str().unwrap();
         put(
@@ -387,6 +404,7 @@ mod tests {
     /// 清空之后目录为空、内存表也空：再取同一条要走磁盘并重写。
     #[test]
     fn clear_empties_disk_and_memory() {
+        let _serial = serial();
         let dir = temp_dir("clear");
         let d = dir.to_str().unwrap();
         put(
