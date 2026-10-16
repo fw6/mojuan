@@ -4,7 +4,7 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 import {
     checkDownload,
     deleteDownloaded,
-    downloadComics,
+    downloadUsage,
     imgSrc,
     readComicMeta,
     repairDownload,
@@ -14,6 +14,7 @@ import {
     type DownloadComic,
 } from "../api";
 import { getSettings } from "../lib/storage/settings";
+import { errorText } from "../lib/errors";
 import { sourceReferer, sourceTitle } from "../lib/sources";
 import { usePageActive } from "../lib/page-active";
 import { chapterLabel } from "../lib/chapters";
@@ -51,13 +52,6 @@ export default function Storage() {
 /** 一部作品的选中键（source 与 comicId 一起才唯一）。 */
 function comicKey(item: DownloadComic): string {
     return `${item.source}:${item.comicId}`;
-}
-
-/** 命令失败时的可读文案（Tauri 的 Err 是字符串，JS 侧异常是 Error）。 */
-function errorText(e: unknown): string {
-    if (typeof e === "string" && e) return e;
-    if (e instanceof Error && e.message) return e.message;
-    return "未知错误";
 }
 
 /**
@@ -99,7 +93,7 @@ function DownloadPanel({ onChanged }: { onChanged: () => void }) {
             const s = await getSettings();
             const downloadDir = s.downloadDir ?? "";
             setDir(downloadDir);
-            setItems(downloadDir ? await downloadComics(downloadDir) : []);
+            setItems(downloadDir ? await downloadUsage(downloadDir) : []);
             setError(null);
         } catch (e) {
             setError(errorText(e));
@@ -251,8 +245,8 @@ function DownloadPanel({ onChanged }: { onChanged: () => void }) {
     );
 }
 
-/** 一部作品一行：封面、标题、源与话数、占用。选择模式下整行点击切换选中；
- * 非选择模式下整行点击就地展开这一部作品的完整性检查。 */
+/** 一部作品一行：封面、标题、源、话数与页数、占用。选择模式下整行点击切换选中；
+ * 非选择模式下点行或右侧的「检查」都就地展开这一部作品的完整性检查。 */
 function DownloadRow({
     item,
     dir,
@@ -267,6 +261,7 @@ function DownloadRow({
     onToggle: () => void;
 }) {
     const [expanded, setExpanded] = useState(false);
+    const label = item.title || item.comicId;
     const content = (
         <>
             <Cover
@@ -275,16 +270,16 @@ function DownloadRow({
                         ? imgSrc(item.cover, { source: item.source, comicId: item.comicId })
                         : ""
                 }
-                alt={item.title || item.comicId}
+                alt={label}
                 className="w-12 shrink-0"
             />
             <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium text-foreground">
-                    {item.title || item.comicId}
-                </div>
+                <div className="truncate text-sm font-medium text-foreground">{label}</div>
                 <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
                     <Tag>{sourceTitle(item.source)}</Tag>
-                    <span className="tabular-nums">{item.chapters} 话</span>
+                    <span className="tabular-nums">
+                        {item.chapters} 话 · {item.pages} 页
+                    </span>
                 </div>
             </div>
             <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
@@ -302,7 +297,7 @@ function DownloadRow({
                     type="checkbox"
                     checked={checked}
                     onChange={onToggle}
-                    aria-label={`选择 ${item.title || item.comicId}`}
+                    aria-label={`选择 ${label}`}
                     className="size-4 shrink-0 accent-primary"
                 />
                 {content}
@@ -311,21 +306,30 @@ function DownloadRow({
     }
     return (
         <div className="rounded-lg border bg-card">
-            <button
-                type="button"
-                onClick={() => setExpanded((v) => !v)}
-                aria-expanded={expanded}
-                aria-label={`${expanded ? "收起" : "展开"}检查结果：${item.title || item.comicId}`}
-                className="flex w-full items-center gap-3 p-3.5 text-left transition-colors hover:bg-secondary/50"
-            >
-                {content}
-                <ChevronDown
-                    className={cn(
-                        "size-4 shrink-0 text-muted-foreground transition-transform",
-                        expanded && "rotate-180",
-                    )}
-                />
-            </button>
+            <div className="flex items-center gap-2 p-3.5">
+                <button
+                    type="button"
+                    onClick={() => setExpanded((v) => !v)}
+                    aria-expanded={expanded}
+                    aria-label={`${expanded ? "收起" : "展开"}检查结果：${label}`}
+                    className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-left transition-colors hover:bg-secondary/50"
+                >
+                    {content}
+                    <ChevronDown
+                        className={cn(
+                            "size-4 shrink-0 text-muted-foreground transition-transform",
+                            expanded && "rotate-180",
+                        )}
+                    />
+                </button>
+                <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setExpanded(true)}
+                >
+                    检查
+                </Button>
+            </div>
             {expanded && <CheckPanel dir={dir} item={item} />}
         </div>
     );
@@ -334,7 +338,7 @@ function DownloadRow({
 /** 页号很多时只列前几个（命令面的页号是 0 基，显示时加 1）。 */
 const MAX_LISTED_PAGES = 5;
 
-/** 一话的徽标：缺页与损坏都走危险色，未核对走中性的次级文字色。 */
+/** 一话的徽标：缺页与损坏都走危险色，未核对完整性走中性的次级文字色。 */
 function chapterBadge(check: ChapterCheck): {
     status: AnimatedBadgeStatus;
     className: string;
@@ -347,7 +351,7 @@ function chapterBadge(check: ChapterCheck): {
         return { status: "danger", className: "", label: `损坏 ${check.broken.length} 个` };
     }
     if (!check.manifest) {
-        return { status: "neutral", className: "", label: "未核对" };
+        return { status: "neutral", className: "", label: "未核对完整性" };
     }
     // 浅色主题下用本仓库的语义色（beui 原生的 emerald 偏亮）
     return { status: "success", className: "text-success", label: "正常" };
@@ -372,7 +376,7 @@ function pageDetail(check: ChapterCheck): string {
     return parts.join(" · ");
 }
 
-/** 展开区：挂载即跑一次检查（展开就是要看结果），顶部是汇总、「补下缺失的页」与「重新检查」。 */
+/** 展开区：挂载即跑一次检查（展开就是要看结果），顶部是汇总、「重新下载缺失的页」与「重新检查」。 */
 function CheckPanel({ dir, item }: { dir: string; item: DownloadComic }) {
     const [report, setReport] = useState<DownloadCheck | null>(null);
     const [checking, setChecking] = useState(true);
@@ -419,7 +423,8 @@ function CheckPanel({ dir, item }: { dir: string; item: DownloadComic }) {
             (check) => check.missing.length > 0 || check.broken.length > 0,
         ) ?? [];
 
-    /** 逐话补下：入队的几话进度在下载页看，这里如实报出结果，不假装已经补完。 */
+    /** 逐话补下（「重新下载缺失的页」）：入队的几话进度在下载页看，这里如实报出结果，
+     * 不假装已经补完。 */
     async function onRepair() {
         if (problemChapters.length === 0) return;
         setRepairing(true);
@@ -427,8 +432,8 @@ function CheckPanel({ dir, item }: { dir: string; item: DownloadComic }) {
         const referer = sourceReferer(item.source);
         let queued = 0;
         let nothing = 0;
-        let failure: string | null = null;
         let failed = 0;
+        let failure: string | null = null;
         for (const check of problemChapters) {
             try {
                 const out = await repairDownload({
@@ -438,8 +443,15 @@ function CheckPanel({ dir, item }: { dir: string; item: DownloadComic }) {
                     chapterIndex: check.chapterIndex,
                     referer,
                 });
-                if (out.result === "nothingToRepair") nothing += 1;
-                else queued += 1;
+                if (out.result === "nothingToRepair") {
+                    nothing += 1;
+                } else if (out.result === "noPageTable") {
+                    // 源给不出页表：如实报出原因，不当成入队成功
+                    failed += 1;
+                    failure ??= out.reason ?? "源没有给出这一话的页表";
+                } else {
+                    queued += 1;
+                }
             } catch (e) {
                 failed += 1;
                 failure ??= errorText(e);
@@ -472,7 +484,7 @@ function CheckPanel({ dir, item }: { dir: string; item: DownloadComic }) {
                         >
                             {repairing
                                 ? "正在补下…"
-                                : `补下缺失的页（${problemChapters.length} 话）`}
+                                : `重新下载缺失的页（${problemChapters.length} 话）`}
                         </Button>
                     )}
                     <Button

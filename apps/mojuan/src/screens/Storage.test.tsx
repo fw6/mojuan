@@ -13,7 +13,7 @@ vi.mock("../api", () => ({
     clearImageCache: vi.fn(),
     clearResultCache: vi.fn(),
     setImageCacheLimit: vi.fn(),
-    downloadComics: vi.fn(),
+    downloadUsage: vi.fn(),
     checkDownload: vi.fn(),
     repairDownload: vi.fn(),
     readComicMeta: vi.fn(),
@@ -40,7 +40,7 @@ import {
     storageUsage,
     clearResultCache,
     setImageCacheLimit,
-    downloadComics,
+    downloadUsage,
     checkDownload,
     repairDownload,
     readComicMeta,
@@ -53,7 +53,7 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 const mockedUsage = vi.mocked(storageUsage);
 const mockedClearResult = vi.mocked(clearResultCache);
 const mockedSetLimit = vi.mocked(setImageCacheLimit);
-const mockedDownloadComics = vi.mocked(downloadComics);
+const mockedDownloadUsage = vi.mocked(downloadUsage);
 const mockedCheckDownload = vi.mocked(checkDownload);
 const mockedRepairDownload = vi.mocked(repairDownload);
 const mockedReadComicMeta = vi.mocked(readComicMeta);
@@ -107,7 +107,7 @@ beforeEach(() => {
     });
     mockedClearResult.mockResolvedValue(undefined);
     mockedSetLimit.mockResolvedValue(undefined);
-    mockedDownloadComics.mockResolvedValue([]);
+    mockedDownloadUsage.mockResolvedValue([]);
     mockedCheckDownload.mockResolvedValue({
         chapters: [],
         missingPages: 0,
@@ -157,8 +157,8 @@ describe("存储页顶部", () => {
 });
 
 describe("存储页的下载列表", () => {
-    it("按占用从大到小列出，每行有封面、标题、源、话数与占用", async () => {
-        mockedDownloadComics.mockResolvedValue([
+    it("按占用从大到小列出，每行有封面、标题、源、话数页数与占用", async () => {
+        mockedDownloadUsage.mockResolvedValue([
             downloadComic({
                 source: "webtoons",
                 comicId: "c1",
@@ -183,7 +183,9 @@ describe("存储页的下载列表", () => {
         const titles = await screen.findAllByText(/作品[甲乙]/);
         expect(titles.map((t) => t.textContent)).toEqual(["作品乙", "作品甲"]);
         expect(screen.getByText("mangadex")).toBeTruthy();
-        expect(screen.getByText("5 话")).toBeTruthy();
+        // 每行的元信息把话数与页数都显示出来
+        expect(screen.getByText("5 话 · 30 页")).toBeTruthy();
+        expect(screen.getByText("2 话 · 10 页")).toBeTruthy();
         expect(screen.getByText("1.5 GB")).toBeTruthy();
         expect(screen.getByText("100 MB")).toBeTruthy();
         // 封面经 imgSrc 拼地址
@@ -194,7 +196,7 @@ describe("存储页的下载列表", () => {
     });
 
     it("标题为空时回落到 comicId，封面为空时给占位", async () => {
-        mockedDownloadComics.mockResolvedValue([
+        mockedDownloadUsage.mockResolvedValue([
             downloadComic({ source: "webtoons", comicId: "c1", title: "", cover: "" }),
         ]);
         const { container } = renderStorage();
@@ -206,7 +208,7 @@ describe("存储页的下载列表", () => {
     });
 
     it("统计中显示加载态", async () => {
-        mockedDownloadComics.mockImplementation(() => new Promise(() => {}));
+        mockedDownloadUsage.mockImplementation(() => new Promise(() => {}));
         renderStorage();
         expect((await screen.findAllByText("正在统计下载占用")).length).toBeGreaterThan(0);
     });
@@ -221,11 +223,11 @@ describe("存储页的下载列表", () => {
         mockedGetSettings.mockResolvedValue(settings({ downloadDir: null }));
         renderStorage();
         expect(await screen.findByText("还没有设置下载位置")).toBeTruthy();
-        expect(mockedDownloadComics).not.toHaveBeenCalled();
+        expect(mockedDownloadUsage).not.toHaveBeenCalled();
     });
 
     it("统计失败时给出错误横幅", async () => {
-        mockedDownloadComics.mockRejectedValue("读取目录失败");
+        mockedDownloadUsage.mockRejectedValue("读取目录失败");
         renderStorage();
         expect(await screen.findByText(/读取下载列表失败/)).toBeTruthy();
     });
@@ -256,7 +258,7 @@ describe("存储页的批量删除", () => {
     }
 
     it("选择模式下每行出现勾选框，整行点击切换选中", async () => {
-        mockedDownloadComics.mockResolvedValue(items);
+        mockedDownloadUsage.mockResolvedValue(items);
         await enterSelection();
 
         expect(screen.getAllByRole("checkbox")).toHaveLength(2);
@@ -272,7 +274,7 @@ describe("存储页的批量删除", () => {
     });
 
     it("全选与取消全选，未选中时删除按钮禁用", async () => {
-        mockedDownloadComics.mockResolvedValue(items);
+        mockedDownloadUsage.mockResolvedValue(items);
         await enterSelection();
 
         expect((screen.getByRole("button", { name: "删除所选" }) as HTMLButtonElement).disabled).toBe(
@@ -290,11 +292,11 @@ describe("存储页的批量删除", () => {
     });
 
     it("删除所选：确认框给出部数与将释放的字节数，逐部删除并刷新列表与占用", async () => {
-        mockedDownloadComics.mockResolvedValue(items);
+        mockedDownloadUsage.mockResolvedValue(items);
         await enterSelection();
         fireEvent.click(screen.getByRole("button", { name: "全选" }));
 
-        const listCalls = mockedDownloadComics.mock.calls.length;
+        const listCalls = mockedDownloadUsage.mock.calls.length;
         const usageCalls = mockedUsage.mock.calls.length;
         fireEvent.click(screen.getByRole("button", { name: "删除所选" }));
 
@@ -308,13 +310,13 @@ describe("存储页的批量删除", () => {
         expect(mockedDeleteDownloaded).toHaveBeenCalledWith(DOWNLOAD_DIR, "mangadex", "c2");
 
         // 列表与占用都重新取，选择模式退出
-        await waitFor(() => expect(mockedDownloadComics.mock.calls.length).toBeGreaterThan(listCalls));
+        await waitFor(() => expect(mockedDownloadUsage.mock.calls.length).toBeGreaterThan(listCalls));
         await waitFor(() => expect(mockedUsage.mock.calls.length).toBeGreaterThan(usageCalls));
         await waitFor(() => expect(screen.queryAllByRole("checkbox")).toHaveLength(0));
     });
 
     it("确认框里点取消就不删除", async () => {
-        mockedDownloadComics.mockResolvedValue(items);
+        mockedDownloadUsage.mockResolvedValue(items);
         mockedConfirm.mockResolvedValue(false);
         await enterSelection();
         fireEvent.click(screen.getByRole("button", { name: "全选" }));
@@ -326,7 +328,7 @@ describe("存储页的批量删除", () => {
     });
 
     it("取消退出选择模式并清空选中", async () => {
-        mockedDownloadComics.mockResolvedValue(items);
+        mockedDownloadUsage.mockResolvedValue(items);
         await enterSelection();
         fireEvent.click(screen.getByRole("button", { name: "全选" }));
 
@@ -361,7 +363,7 @@ describe("存储页的完整性检查", () => {
     }
 
     it("展开一行自动跑检查，渲染汇总、逐话状态与页号", async () => {
-        mockedDownloadComics.mockResolvedValue([item]);
+        mockedDownloadUsage.mockResolvedValue([item]);
         mockedCheckDownload.mockResolvedValue({
             chapters: [
                 chapterCheck({ chapterIndex: 1, pages: 40, missing: [12, 13], broken: [30] }),
@@ -395,7 +397,7 @@ describe("存储页的完整性检查", () => {
         expect(screen.getByText("第 3 话")).toBeTruthy();
         // 四态徽标
         expect(screen.getByText("缺 2 页")).toBeTruthy();
-        expect(screen.getByText("未核对")).toBeTruthy();
+        expect(screen.getByText("未核对完整性")).toBeTruthy();
         expect(screen.getByText("正常")).toBeTruthy();
         // 页号显示时加 1
         expect(screen.getByText("缺第 13、14 页 · 损坏第 31 页")).toBeTruthy();
@@ -403,7 +405,7 @@ describe("存储页的完整性检查", () => {
     });
 
     it("页号很多时只列前几个并补等 N 页", async () => {
-        mockedDownloadComics.mockResolvedValue([item]);
+        mockedDownloadUsage.mockResolvedValue([item]);
         mockedCheckDownload.mockResolvedValue({
             chapters: [
                 chapterCheck({
@@ -423,7 +425,7 @@ describe("存储页的完整性检查", () => {
     });
 
     it("重新检查再跑一次命令", async () => {
-        mockedDownloadComics.mockResolvedValue([item]);
+        mockedDownloadUsage.mockResolvedValue([item]);
         mockedCheckDownload.mockResolvedValue({
             chapters: [chapterCheck({ chapterIndex: 1 })],
             missingPages: 0,
@@ -442,7 +444,7 @@ describe("存储页的完整性检查", () => {
     });
 
     it("检查失败时给出错误文案，不假装正常", async () => {
-        mockedDownloadComics.mockResolvedValue([item]);
+        mockedDownloadUsage.mockResolvedValue([item]);
         mockedCheckDownload.mockRejectedValue("读取目录失败");
 
         await expandRow();
@@ -450,13 +452,35 @@ describe("存储页的完整性检查", () => {
         expect(await screen.findByText(/检查失败：读取目录失败/)).toBeTruthy();
     });
 
+    it("行右侧的「检查」与点行一样展开并跑检查", async () => {
+        mockedDownloadUsage.mockResolvedValue([item]);
+        mockedCheckDownload.mockResolvedValue({
+            chapters: [chapterCheck({ chapterIndex: 1 })],
+            missingPages: 0,
+            brokenFiles: 0,
+            unchecked: 0,
+        });
+
+        renderStorage();
+        await screen.findByText("作品甲");
+        expect(mockedCheckDownload).not.toHaveBeenCalled();
+
+        fireEvent.click(screen.getByRole("button", { name: "检查" }));
+
+        await waitFor(() =>
+            expect(mockedCheckDownload).toHaveBeenCalledWith(DOWNLOAD_DIR, "webtoons", "c1"),
+        );
+        expect(await screen.findByText("1 话 · 缺 0 页 · 损坏 0 个")).toBeTruthy();
+    });
+
     it("选择模式下没有检查入口，点行是选中", async () => {
-        mockedDownloadComics.mockResolvedValue([item]);
+        mockedDownloadUsage.mockResolvedValue([item]);
         renderStorage();
         await screen.findByText("作品甲");
         fireEvent.click(screen.getByRole("button", { name: "选择" }));
 
         expect(screen.queryByRole("button", { name: /检查结果/ })).toBeNull();
+        expect(screen.queryByRole("button", { name: "检查" })).toBeNull();
         fireEvent.click(screen.getByText("作品甲").closest("label")!);
         expect(screen.getByText("已选 1 部 · 合计 1.0 GB")).toBeTruthy();
         expect(mockedCheckDownload).not.toHaveBeenCalled();
@@ -486,7 +510,7 @@ describe("存储页的补下", () => {
     }
 
     it("有问题的章节数大于 0 时出现补下按钮，点它逐话入队并说清去哪看进度", async () => {
-        mockedDownloadComics.mockResolvedValue([item]);
+        mockedDownloadUsage.mockResolvedValue([item]);
         mockedCheckDownload.mockResolvedValue({
             chapters: [
                 chapterCheck({ chapterIndex: 1, missing: [12, 13] }),
@@ -499,7 +523,7 @@ describe("存储页的补下", () => {
         });
 
         await expandRow();
-        const button = await screen.findByRole("button", { name: "补下缺失的页（2 话）" });
+        const button = await screen.findByRole("button", { name: "重新下载缺失的页（2 话）" });
         expect(mockedRepairDownload).not.toHaveBeenCalled();
 
         fireEvent.click(button);
@@ -525,7 +549,7 @@ describe("存储页的补下", () => {
     });
 
     it("每一话都正常时没有补下按钮", async () => {
-        mockedDownloadComics.mockResolvedValue([item]);
+        mockedDownloadUsage.mockResolvedValue([item]);
         mockedCheckDownload.mockResolvedValue({
             chapters: [
                 chapterCheck({ chapterIndex: 1 }),
@@ -539,12 +563,12 @@ describe("存储页的补下", () => {
         await expandRow();
         await screen.findByText("2 话 · 缺 0 页 · 损坏 0 个");
 
-        expect(screen.queryByRole("button", { name: /补下缺失的页/ })).toBeNull();
+        expect(screen.queryByRole("button", { name: /重新下载缺失的页/ })).toBeNull();
         expect(mockedRepairDownload).not.toHaveBeenCalled();
     });
 
-    it("没有要补的页与入队失败都如实说出来", async () => {
-        mockedDownloadComics.mockResolvedValue([item]);
+    it("没有要补的页、源给不出页表与入队失败都如实说出来", async () => {
+        mockedDownloadUsage.mockResolvedValue([item]);
         mockedCheckDownload.mockResolvedValue({
             chapters: [
                 chapterCheck({ chapterIndex: 1, missing: [0] }),
@@ -556,10 +580,17 @@ describe("存储页的补下", () => {
         });
         mockedRepairDownload
             .mockResolvedValueOnce({ result: "nothingToRepair", pages: 0, progress: null })
-            .mockRejectedValueOnce("没有页清单，源也没有给出第 2 话的页表");
+            .mockResolvedValueOnce({
+                result: "noPageTable",
+                pages: 0,
+                progress: null,
+                reason: "没有页清单，源也没有给出第 2 话的页表",
+            });
 
         await expandRow();
-        fireEvent.click(await screen.findByRole("button", { name: "补下缺失的页（2 话）" }));
+        fireEvent.click(
+            await screen.findByRole("button", { name: "重新下载缺失的页（2 话）" }),
+        );
 
         expect(
             await screen.findByText(
