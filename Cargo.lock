@@ -2404,7 +2404,7 @@ dependencies = [
 
 [[package]]
 name = "mojuan"
-version = "1.6.9"
+version = "1.7.0"
 dependencies = [
  "bytes",
  "http-body-util",
@@ -2430,7 +2430,7 @@ dependencies = [
 
 [[package]]
 name = "mojuan-core"
-version = "1.6.9"
+version = "1.7.0"
 dependencies = [
  "base64 0.22.1",
  "percent-encoding",
