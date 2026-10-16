@@ -2,7 +2,7 @@
 //!
 //! 有页清单的按清单比对（缺 = 文件不在；损坏 = 字节数与清单不符或文件为空），
 //! 没有清单的旧下载按下载索引比对（缺 = 索引里的页文件不在；损坏 = 文件为空），
-//! 并如实标明这一话的完整性没有被核对。判定与修复入队共用 `page_manifest::page_state`。
+//! 并如实标明这一话的完整性没有被核对。判定与修复入队共用 `page_manifest::page_state_at`。
 //!
 //! 只读本地文件，不发网络请求。
 
@@ -44,9 +44,11 @@ pub struct IntegrityReport {
 /// 只读本地文件，不发网络请求。
 pub fn check(dir: &str, source: &str, comic_id: &str) -> String {
     let report = report(dir, source, comic_id);
-    serde_json::to_string(&report).unwrap_or_else(|_| {
-        "{\"chapters\":[],\"missingPages\":0,\"brokenFiles\":0,\"unchecked\":0}".to_string()
-    })
+    // 报告只含数字、布尔与字符串，序列化不会失败；失败即不变量被破坏，就地崩溃，
+    // 不允许回落到空报告——那等于谎报「没有任何缺失」。
+    serde_json::to_value(&report)
+        .expect("完整性报告序列化失败")
+        .to_string()
 }
 
 /// 逐话检查并汇总。
