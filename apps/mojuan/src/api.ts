@@ -283,6 +283,36 @@ export const downloadComics = (dir: string): Promise<DownloadComic[]> =>
         (json) => JSON.parse(json) as DownloadComic[],
     );
 
+/** 一话的完整性检查结果：`pages` 是这一话的期望页数，`missing`/`broken` 是 0 基页序号
+ * （与下载命名一致，界面显示时加 1），`manifest` 表示这一话有没有页清单。 */
+export interface ChapterCheck {
+    chapterIndex: number;
+    pages: number;
+    missing: number[];
+    broken: number[];
+    manifest: boolean;
+}
+
+/** 一部作品的完整性检查结果（`check_download`）。 */
+export interface DownloadCheck {
+    chapters: ChapterCheck[];
+    missingPages: number;
+    brokenFiles: number;
+    /** 没有页清单、因此完整性未被核对的话数（旧下载）。 */
+    unchecked: number;
+}
+
+/** 按作品检查下载完整性：有页清单的按清单比对，没有的旧下载按下载索引比对。
+ * 只读本地文件，不发网络请求。 */
+export const checkDownload = (
+    dir: string,
+    source: string,
+    comicId: string,
+): Promise<DownloadCheck> =>
+    invoke<string>("check_download", { dir, source, comicId }).then(
+        (json) => JSON.parse(json) as DownloadCheck,
+    );
+
 /** 清空图片缓存（磁盘 + 内存表）。 */
 export const clearImageCache = (): Promise<void> => invoke<void>("clear_image_cache");
 

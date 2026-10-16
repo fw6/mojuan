@@ -91,6 +91,44 @@ pub fn resolve_downloaded_path(dir: &str, source: &str, comic_id: &str, rel: &st
     comic_dir(dir, source, comic_id).join(rel)
 }
 
+/// 索引里的相对路径 → `(话序号, 页序号)`：`chapter_<n>/<页号>.<ext>`（下载落盘的命名规则，
+/// 见 `files::page_rel_path`）。认不出页序号的条目返回 None——它们不是下载落下的页。
+pub fn parse_page_rel_path(rel: &str) -> Option<(i64, i64)> {
+    let (chapter_part, file_part) = rel.split_once('/')?;
+    let chapter = chapter_part.strip_prefix("chapter_")?.parse().ok()?;
+    let digits: String = file_part
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    Some((chapter, digits.parse().ok()?))
+}
+
+/// 索引里属于某一话的页：`(页序号, 绝对路径)`，按页序号升序。
+/// 完整性检查在没有页清单的旧下载上按这份条目比对磁盘。
+pub fn chapter_pages(
+    dir: &str,
+    source: &str,
+    comic_id: &str,
+    chapter_index: i64,
+) -> Vec<(i64, PathBuf)> {
+    let idx = DownloadIndex::load(&index_path(dir, source, comic_id));
+    let mut out: Vec<(i64, PathBuf)> = idx
+        .map
+        .values()
+        .filter_map(|rel| {
+            let (chapter, page) = parse_page_rel_path(rel)?;
+            if chapter != chapter_index {
+                return None;
+            }
+            Some((page, comic_dir(dir, source, comic_id).join(rel)))
+        })
+        .collect();
+    out.sort_by_key(|(page, _)| *page);
+    // 两条 url 指向同一页时只算一页
+    out.dedup_by_key(|(page, _)| *page);
+    out
+}
+
 /// list_downloaded 返回时把 url 带上（wayfinder #31：离线阅读器用 url 调用 img_proxy）。
 /// 每话的页按页号排序（阅读器照这个顺序显示，比较见 `natural_cmp`）。
 /// 返回 JSON: `{chapterIndex: [{"url": "...", "path": "..."}]}`。
@@ -389,6 +427,49 @@ mod tests {
                 "chapter_1/page-10.jpg"
             ]
         );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 索引里属于某一话的页：按页序号升序，路径是绝对路径；别的话与认不出页序号的条目不算。
+    #[test]
+    fn chapter_pages_lists_the_pages_of_one_chapter() {
+        let dir = temp_dir("chapter_pages");
+        let base = dir.to_str().unwrap();
+        let chapter = dir.join("webtoons").join("c1");
+        fs::create_dir_all(chapter.join("chapter_1")).unwrap();
+        fs::create_dir_all(chapter.join("chapter_2")).unwrap();
+        let entries = vec![
+            (
+                "https://u/10.jpg".to_string(),
+                "chapter_1/10.jpg".to_string(),
+            ),
+            ("https://u/2.jpg".to_string(), "chapter_1/2.jpg".to_string()),
+            ("https://u/0.jpg".to_string(), "chapter_1/0.jpg".to_string()),
+            ("https://u/1.jpg".to_string(), "chapter_2/0.jpg".to_string()),
+            // 用户导入的页（没有页序号）不是下载落下的，不算
+            (
+                "https://u/x.jpg".to_string(),
+                "chapter_1/page-1.jpg".to_string(),
+            ),
+        ];
+        for (_, rel) in &entries {
+            fs::write(chapter.join(rel), b"x").unwrap();
+        }
+        assert!(record_downloads(base, "webtoons", "c1", &entries));
+
+        let pages = chapter_pages(base, "webtoons", "c1", 1);
+        assert_eq!(
+            pages.iter().map(|(page, _)| *page).collect::<Vec<i64>>(),
+            vec![0, 2, 10]
+        );
+        assert_eq!(pages[0].1, chapter.join("chapter_1/0.jpg"));
+        assert_eq!(chapter_pages(base, "webtoons", "c1", 2).len(), 1);
+        assert!(chapter_pages(base, "webtoons", "c1", 3).is_empty());
+
+        assert_eq!(parse_page_rel_path("chapter_1/12.jpg"), Some((1, 12)));
+        assert_eq!(parse_page_rel_path("chapter_1/page-1.jpg"), None);
+        assert_eq!(parse_page_rel_path("download_index.json"), None);
 
         let _ = fs::remove_dir_all(&dir);
     }

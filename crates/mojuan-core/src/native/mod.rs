@@ -5,6 +5,7 @@ pub mod comic_meta;
 pub mod download;
 pub mod download_index;
 pub mod files;
+pub mod integrity;
 pub mod ota;
 pub mod page_manifest;
 pub mod queue;

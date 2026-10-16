@@ -62,6 +62,7 @@ pub fn run() {
             commands::img_proxy_set_download_dir,
             commands::storage_usage,
             commands::download_comics,
+            commands::check_download,
             commands::clear_image_cache,
             commands::clear_result_cache,
             commands::set_image_cache_limit,

@@ -17,7 +17,7 @@ fn chapter_dir_name(index: i64) -> String {
     format!("chapter_{}", index)
 }
 
-fn chapter_index_from_dir_name(name: &str) -> Option<i64> {
+pub(crate) fn chapter_index_from_dir_name(name: &str) -> Option<i64> {
     name.strip_prefix("chapter_")?.parse().ok()
 }
 

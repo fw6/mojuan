@@ -27,6 +27,7 @@ import {
     webdavPut,
     webdavGet,
     storageUsage,
+    checkDownload,
     clearImageCache,
     clearResultCache,
     setImageCacheLimit,
@@ -462,6 +463,34 @@ describe("存储占用与清理 API", () => {
         await setImageCacheLimit(1024 * 1024 * 1024);
         expect(mockedInvoke).toHaveBeenCalledWith("set_image_cache_limit", {
             bytes: 1024 * 1024 * 1024,
+        });
+    });
+
+    it("checkDownload 传下载目录、源与作品 id，解析逐话结果与合计", async () => {
+        mockedInvoke.mockResolvedValue(
+            JSON.stringify({
+                chapters: [
+                    { chapterIndex: 1, pages: 40, missing: [12, 13], broken: [30], manifest: true },
+                    { chapterIndex: 2, pages: 5, missing: [], broken: [], manifest: false },
+                ],
+                missingPages: 2,
+                brokenFiles: 1,
+                unchecked: 1,
+            }),
+        );
+        await expect(checkDownload("/tmp/dl", "webtoons", "c1")).resolves.toEqual({
+            chapters: [
+                { chapterIndex: 1, pages: 40, missing: [12, 13], broken: [30], manifest: true },
+                { chapterIndex: 2, pages: 5, missing: [], broken: [], manifest: false },
+            ],
+            missingPages: 2,
+            brokenFiles: 1,
+            unchecked: 1,
+        });
+        expect(mockedInvoke).toHaveBeenCalledWith("check_download", {
+            dir: "/tmp/dl",
+            source: "webtoons",
+            comicId: "c1",
         });
     });
 });

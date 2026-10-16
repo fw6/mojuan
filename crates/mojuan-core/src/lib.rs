@@ -102,6 +102,14 @@ pub fn download_comics(dir: &str) -> String {
     native::files::download_comics(dir)
 }
 
+/// 完整性检查：返回 JSON
+/// `{chapters: [{chapterIndex, pages, missing, broken, manifest}], missingPages, brokenFiles, unchecked}`。
+/// 有页清单的按清单比对，没有页清单的旧下载按下载索引比对（并计入 `unchecked`）。
+/// 页号是 0 基（与下载命名一致）。只读本地文件，不发网络请求。
+pub fn check_download(dir: &str, source: &str, comic_id: &str) -> String {
+    native::integrity::check(dir, source, comic_id)
+}
+
 /// 清空图片缓存：删掉磁盘上的条目并清空内存表（不碰下载目录）。
 pub fn clear_image_cache(cache_dir: &str) {
     cache::clear(cache_dir);

@@ -1,16 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, HardDrive } from "lucide-react";
+import { ChevronDown, Download, HardDrive } from "lucide-react";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import {
+    checkDownload,
     deleteDownloaded,
     downloadComics,
     imgSrc,
+    readComicMeta,
+    type ChapterCheck,
+    type ComicMeta,
+    type DownloadCheck,
     type DownloadComic,
 } from "../api";
 import { getSettings } from "../lib/storage/settings";
 import { sourceTitle } from "../lib/sources";
 import { usePageActive } from "../lib/page-active";
-import { formatBytes } from "../lib/utils";
+import { chapterLabel } from "../lib/chapters";
+import { cn, formatBytes } from "../lib/utils";
 import {
     Banner,
     Cover,
@@ -21,6 +27,10 @@ import {
     Tag,
 } from "../components/ui";
 import { Button } from "../components/beui/button";
+import {
+    AnimatedBadge,
+    type AnimatedBadgeStatus,
+} from "../components/beui/animated-badge";
 import { StorageOverview } from "../components/storage-overview";
 
 /**
@@ -216,6 +226,7 @@ function DownloadPanel({ onChanged }: { onChanged: () => void }) {
                             <DownloadRow
                                 key={comicKey(item)}
                                 item={item}
+                                dir={dir}
                                 selecting={selecting}
                                 checked={selected.includes(comicKey(item))}
                                 onToggle={() => toggle(comicKey(item))}
@@ -239,18 +250,22 @@ function DownloadPanel({ onChanged }: { onChanged: () => void }) {
     );
 }
 
-/** 一部作品一行：封面、标题、源与话数、占用。选择模式下整行点击切换选中。 */
+/** 一部作品一行：封面、标题、源与话数、占用。选择模式下整行点击切换选中；
+ * 非选择模式下整行点击就地展开这一部作品的完整性检查。 */
 function DownloadRow({
     item,
+    dir,
     selecting,
     checked,
     onToggle,
 }: {
     item: DownloadComic;
+    dir: string;
     selecting: boolean;
     checked: boolean;
     onToggle: () => void;
 }) {
+    const [expanded, setExpanded] = useState(false);
     const content = (
         <>
             <Cover
@@ -277,22 +292,191 @@ function DownloadRow({
         </>
     );
 
-    if (!selecting) {
+    // 选择模式是删除用的：不展开、不显示检查入口
+    if (selecting) {
+        // label 包住整行：点行的任何位置都切换这一行的勾选框
         return (
-            <div className="flex items-center gap-3 rounded-lg border bg-card p-3.5">{content}</div>
+            <label className="flex cursor-pointer items-center gap-3 rounded-lg border bg-card p-3.5 transition-colors hover:bg-secondary/50">
+                <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={onToggle}
+                    aria-label={`选择 ${item.title || item.comicId}`}
+                    className="size-4 shrink-0 accent-primary"
+                />
+                {content}
+            </label>
         );
     }
-    // label 包住整行：点行的任何位置都切换这一行的勾选框
     return (
-        <label className="flex cursor-pointer items-center gap-3 rounded-lg border bg-card p-3.5 transition-colors hover:bg-secondary/50">
-            <input
-                type="checkbox"
-                checked={checked}
-                onChange={onToggle}
-                aria-label={`选择 ${item.title || item.comicId}`}
-                className="size-4 shrink-0 accent-primary"
-            />
-            {content}
-        </label>
+        <div className="rounded-lg border bg-card">
+            <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                aria-expanded={expanded}
+                aria-label={`${expanded ? "收起" : "展开"}检查结果：${item.title || item.comicId}`}
+                className="flex w-full items-center gap-3 p-3.5 text-left transition-colors hover:bg-secondary/50"
+            >
+                {content}
+                <ChevronDown
+                    className={cn(
+                        "size-4 shrink-0 text-muted-foreground transition-transform",
+                        expanded && "rotate-180",
+                    )}
+                />
+            </button>
+            {expanded && <CheckPanel dir={dir} item={item} />}
+        </div>
+    );
+}
+
+/** 页号很多时只列前几个（命令面的页号是 0 基，显示时加 1）。 */
+const MAX_LISTED_PAGES = 5;
+
+/** 一话的徽标：缺页与损坏都走危险色，未核对走中性的次级文字色。 */
+function chapterBadge(check: ChapterCheck): {
+    status: AnimatedBadgeStatus;
+    className: string;
+    label: string;
+} {
+    if (check.missing.length > 0) {
+        return { status: "danger", className: "", label: `缺 ${check.missing.length} 页` };
+    }
+    if (check.broken.length > 0) {
+        return { status: "danger", className: "", label: `损坏 ${check.broken.length} 个` };
+    }
+    if (!check.manifest) {
+        return { status: "neutral", className: "", label: "未核对" };
+    }
+    // 浅色主题下用本仓库的语义色（beui 原生的 emerald 偏亮）
+    return { status: "success", className: "text-success", label: "正常" };
+}
+
+/** 页号小字：「缺第 13、14 页」，页号多时只列前几个并补上总数。 */
+function pageListText(prefix: string, pages: number[]): string {
+    const listed = pages
+        .slice(0, MAX_LISTED_PAGES)
+        .map((page) => page + 1)
+        .join("、");
+    return pages.length > MAX_LISTED_PAGES
+        ? `${prefix}第 ${listed} 页 等 ${pages.length} 页`
+        : `${prefix}第 ${listed} 页`;
+}
+
+/** 一话的页号小字：缺失与损坏各一段，都有时并排。 */
+function pageDetail(check: ChapterCheck): string {
+    const parts: string[] = [];
+    if (check.missing.length > 0) parts.push(pageListText("缺", check.missing));
+    if (check.broken.length > 0) parts.push(pageListText("损坏", check.broken));
+    return parts.join(" · ");
+}
+
+/** 展开区：挂载即跑一次检查（展开就是要看结果），顶部是汇总与「重新检查」。 */
+function CheckPanel({ dir, item }: { dir: string; item: DownloadComic }) {
+    const [report, setReport] = useState<DownloadCheck | null>(null);
+    const [checking, setChecking] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [meta, setMeta] = useState<ComicMeta | null>(null);
+
+    const run = useCallback(async () => {
+        setChecking(true);
+        setError(null);
+        try {
+            setReport(await checkDownload(dir, item.source, item.comicId));
+        } catch (e) {
+            setError(errorText(e));
+        } finally {
+            setChecking(false);
+        }
+    }, [dir, item.source, item.comicId]);
+
+    useEffect(() => {
+        void run();
+    }, [run]);
+
+    // 话名取自作品元数据；取不到（旧下载没有 comic.json）回落到话序号
+    useEffect(() => {
+        let live = true;
+        void readComicMeta(dir, item.source, item.comicId).then(
+            (m) => {
+                if (live) setMeta(m);
+            },
+            () => {
+                if (live) setMeta(null);
+            },
+        );
+        return () => {
+            live = false;
+        };
+    }, [dir, item.source, item.comicId]);
+
+    return (
+        <div className="border-t border-border px-3.5 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs tabular-nums text-muted-foreground">
+                    {report && !checking
+                        ? `${report.chapters.length} 话 · 缺 ${report.missingPages} 页 · 损坏 ${report.brokenFiles} 个`
+                        : "正在检查…"}
+                </span>
+                <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void run()}
+                    disabled={checking}
+                >
+                    {checking ? "检查中…" : "重新检查"}
+                </Button>
+            </div>
+            {checking ? (
+                <Loading label="正在检查完整性" />
+            ) : error ? (
+                <p className="mt-2 text-xs text-destructive">检查失败：{error}</p>
+            ) : report ? (
+                <>
+                    {report.unchecked > 0 && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                            {`其中 ${report.unchecked} 话没有页清单，只核对了已有的页`}
+                        </p>
+                    )}
+                    <div className="mt-2">
+                        {report.chapters.map((check) => (
+                            <ChapterCheckRow
+                                key={check.chapterIndex}
+                                check={check}
+                                title={meta?.chapters[String(check.chapterIndex)]}
+                            />
+                        ))}
+                    </div>
+                </>
+            ) : null}
+        </div>
+    );
+}
+
+/** 一话一行：左侧话名（下面补页号小字），右侧状态徽标。 */
+function ChapterCheckRow({ check, title }: { check: ChapterCheck; title?: string }) {
+    const badge = chapterBadge(check);
+    const detail = pageDetail(check);
+    return (
+        <div className="flex items-start justify-between gap-3 border-t border-border py-2 first:border-t-0">
+            <div className="min-w-0">
+                <div className="truncate text-xs font-medium text-foreground">
+                    {chapterLabel(title, check.chapterIndex)}
+                </div>
+                {detail && (
+                    <div className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
+                        {detail}
+                    </div>
+                )}
+            </div>
+            <AnimatedBadge
+                status={badge.status}
+                size="sm"
+                className={badge.className}
+                contentKey={badge.label}
+            >
+                {badge.label}
+            </AnimatedBadge>
+        </div>
     );
 }

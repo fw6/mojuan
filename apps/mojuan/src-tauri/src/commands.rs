@@ -207,6 +207,21 @@ pub async fn download_comics(dir: String) -> Result<String, String> {
         .map_err(|e| format!("统计下载占用异常终止: {e}"))
 }
 
+/// 按作品检查下载完整性（存储页的「检查」）：逐话给出页数、缺失页、损坏页与有没有页清单。
+/// 逐话逐页读磁盘，走阻塞线程；只读本地文件，不发网络请求。
+#[tauri::command]
+pub async fn check_download(
+    dir: String,
+    source: String,
+    comic_id: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        mojuan_core::check_download(&dir, &source, &comic_id)
+    })
+    .await
+    .map_err(|e| format!("检查下载完整性异常终止: {e}"))
+}
+
 /// 清空图片缓存（磁盘 + 内存表），不碰下载目录。
 #[tauri::command]
 pub async fn clear_image_cache() -> Result<(), String> {

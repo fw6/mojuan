@@ -4,7 +4,7 @@
 //! 页清单是「这一话应该有什么」的记录：完整性检查与补下都以它为准；旧下载没有这份文件。
 //! 文件名以点开头，话目录的页列表与页数统计把它当元数据，不列出来。
 //!
-//! 「这一页在磁盘上是否完整」的判定只有一处（`page_complete`），完整性检查与修复入队共用：
+//! 「这一页在磁盘上是什么状态」的判定只有一处（`page_state`），完整性检查与修复入队共用：
 //! 页文件存在且非空；并且当页清单里有这一页的记录时，字节数要与记录一致。页清单不存在
 //! （旧下载）时，判定退化为「文件存在且非空」。
 
@@ -111,10 +111,21 @@ pub fn write(
         .is_some()
 }
 
-/// 这一页在磁盘上是否完整。
+/// 一页在磁盘上的状态。
 ///
-/// 语义：页文件存在且非空；并且当页清单里有这一页的记录时，字节数要与记录一致。
-/// 页清单不存在（旧下载）时，判定退化为「文件存在且非空」。
+/// `Missing` 与 `Broken` 分开是为了让完整性检查报出「缺」与「损坏」的差别，
+/// 修复入队只看「是不是 `Complete`」。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PageState {
+    /// 文件存在、非空，且字节数与页清单一致（无页清单时只要求存在且非空）。
+    Complete,
+    /// 页文件不在。
+    Missing,
+    /// 文件在但为空，或字节数与页清单的记录不符。
+    Broken,
+}
+
+/// 这一页在磁盘上是否完整（`page_state` 的布尔形式）。
 pub fn page_complete(
     dir: &str,
     source: &str,
@@ -123,15 +134,41 @@ pub fn page_complete(
     page_index: i64,
     url: &str,
 ) -> bool {
+    page_state(dir, source, comic_id, chapter_index, page_index, url) == PageState::Complete
+}
+
+/// 这一页在磁盘上的状态。
+///
+/// 语义：页文件存在且非空；并且当页清单里有这一页的记录时，字节数要与记录一致。
+/// 页清单不存在（旧下载）时，判定退化为「文件存在且非空」。
+pub fn page_state(
+    dir: &str,
+    source: &str,
+    comic_id: &str,
+    chapter_index: i64,
+    page_index: i64,
+    url: &str,
+) -> PageState {
     let path = page_path(dir, source, comic_id, chapter_index, page_index, url);
-    let Some(size) = non_empty_file_size(&path) else {
-        return false;
+    let manifest = read(dir, source, comic_id, chapter_index);
+    page_state_at(&path, manifest.as_ref(), page_index as usize)
+}
+
+/// 判定一页的状态，页清单由调用方给出（`None` 表示这一话没有清单，按「存在且非空」判）。
+/// 路径由调用方按 `files::page_rel_path` 拼好——逐页检查的话不必每页都重读一次清单。
+pub fn page_state_at(path: &Path, manifest: Option<&PageManifest>, page_index: usize) -> PageState {
+    let Ok(meta) = fs::metadata(path) else {
+        return PageState::Missing;
     };
-    match read(dir, source, comic_id, chapter_index)
-        .and_then(|m| m.pages.get(page_index as usize).cloned())
-    {
-        Some(record) => record.bytes == Some(size),
-        None => true,
+    if !meta.is_file() {
+        return PageState::Missing;
+    }
+    if meta.len() == 0 {
+        return PageState::Broken;
+    }
+    match manifest.and_then(|m| m.pages.get(page_index)) {
+        Some(record) if record.bytes != Some(meta.len()) => PageState::Broken,
+        _ => PageState::Complete,
     }
 }
 
@@ -339,6 +376,56 @@ mod tests {
             1,
             "https://x/1.jpg"
         ));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 缺失与损坏要分得开：文件不在是缺失，空文件与字节数不符是损坏。
+    #[test]
+    fn page_state_separates_missing_from_broken() {
+        let dir = temp_dir("state");
+        let base = dir.to_str().unwrap();
+        let chapter = chapter_dir(base, "webtoons", "c1", 1);
+        fs::create_dir_all(&chapter).unwrap();
+        let pages = entries(&["https://x/0.jpg", "https://x/1.jpg", "https://x/2.jpg"]);
+        fs::write(chapter.join("0.jpg"), b"abc").unwrap();
+        write(base, "webtoons", "c1", 1, "", &pages);
+
+        // 文件不在 → 缺失
+        assert_eq!(
+            page_state(base, "webtoons", "c1", 1, 1, "https://x/1.jpg"),
+            PageState::Missing
+        );
+        // 空文件 → 损坏
+        fs::write(chapter.join("2.jpg"), b"").unwrap();
+        assert_eq!(
+            page_state(base, "webtoons", "c1", 1, 2, "https://x/2.jpg"),
+            PageState::Broken
+        );
+        // 字节数与清单不符 → 损坏
+        fs::write(chapter.join("0.jpg"), b"abcd").unwrap();
+        assert_eq!(
+            page_state(base, "webtoons", "c1", 1, 0, "https://x/0.jpg"),
+            PageState::Broken
+        );
+        // 与清单一致 → 完整
+        fs::write(chapter.join("0.jpg"), b"abc").unwrap();
+        assert_eq!(
+            page_state(base, "webtoons", "c1", 1, 0, "https://x/0.jpg"),
+            PageState::Complete
+        );
+
+        // 没有页清单时只看存在与空：非空即完整，空文件算损坏
+        fs::remove_file(chapter.join(FILE_NAME)).unwrap();
+        assert_eq!(
+            page_state(base, "webtoons", "c1", 1, 0, "https://x/0.jpg"),
+            PageState::Complete
+        );
+        fs::write(chapter.join("1.jpg"), b"").unwrap();
+        assert_eq!(
+            page_state(base, "webtoons", "c1", 1, 1, "https://x/1.jpg"),
+            PageState::Broken
+        );
 
         let _ = fs::remove_dir_all(&dir);
     }
