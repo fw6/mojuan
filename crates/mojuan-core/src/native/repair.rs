@@ -113,12 +113,16 @@ fn source_page_table(
         "chapterIndex": chapter_index,
     })
     .to_string();
+    // 只认这一次取数记下的错误：源注册表里的错误行会留到下一次成功为止，
+    // 不按时间筛的话会把上一次别的 op 的失败当成这次取页表的原因。
+    let started = crate::util::now_ms();
     let (raw, ok) = crawler::crawl_checked("images", source, &payload, cache_dir);
     if !ok {
-        return Err(match crawler::registry::last_error(source) {
-            Some((message, _)) => {
-                format!("回源取第 {} 话页表失败：{message}", chapter_index + 1)
-            }
+        let detail = crawler::registry::last_error(source)
+            .filter(|(_, at)| *at >= started)
+            .map(|(message, _)| message);
+        return Err(match detail {
+            Some(message) => format!("回源取第 {} 话页表失败：{message}", chapter_index + 1),
             None => format!("回源取第 {} 话页表失败", chapter_index + 1),
         });
     }
@@ -170,18 +174,22 @@ mod tests {
         }
     }
 
-    /// 装一个演示源：它的 `images` op 由内嵌脚本直接给出结果，不发网络请求。
-    fn install_source(script: &str) {
-        let document = format!(
-            r#"{{"schema":1,"id":"demo","title":"演示","ops":{{"images":{{"script":"{script}"}}}}}}"#
-        );
+    /// 装一份演示源文档。
+    fn install_source_doc(document: &str) {
         sync(SyncPayload {
             runtime: None,
             sources: vec![SyncSource {
                 id: "demo".to_string(),
-                document,
+                document: document.to_string(),
             }],
         });
+    }
+
+    /// 装一个演示源：它的 `images` op 由内嵌脚本直接给出结果，不发网络请求。
+    fn install_source(script: &str) {
+        install_source_doc(&format!(
+            r#"{{"schema":1,"id":"demo","title":"演示","ops":{{"images":{{"script":"{script}"}}}}}}"#
+        ));
     }
 
     /// 装一个 `images` 返回给定页表的演示源。
@@ -321,6 +329,25 @@ mod tests {
         let err = task(base, "not-installed", COMIC, 1, "", "").unwrap_err();
 
         assert!(err.contains("回源取第 2 话页表失败"), "{err}");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 回源抓取报错：把源这一次记下的原因一起带出来（不是笼统的「源没有这一话」）。
+    #[test]
+    fn a_failed_fetch_carries_the_source_error() {
+        let _guard = crate::crawler::registry::test_lock();
+        let dir = temp_dir("fetch-fail");
+        let base = dir.to_str().unwrap();
+        make_chapter(base, 1, &[Some(10)]);
+        // images 请求一个连不上的地址：抓取失败，源记下原因
+        install_source_doc(
+            r#"{"schema":1,"id":"demo","title":"演示","ops":{"images":{"request":[{"name":"page","url":"http://127.0.0.1:1/x"}],"items":"img.p","url":{"attr":"src"}}}}"#,
+        );
+
+        let err = task(base, "demo", COMIC, 1, "", "").unwrap_err();
+
+        assert!(err.contains("回源取第 2 话页表失败："), "{err}");
 
         let _ = fs::remove_dir_all(&dir);
     }
