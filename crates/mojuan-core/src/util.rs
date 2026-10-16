@@ -38,8 +38,7 @@ impl<K, V> Lru<K, V> {
         }
     }
 
-    /// 清空（只给测试用：清掉内存命中，让「回落到磁盘」那段路径可测）。
-    #[cfg(test)]
+    /// 清空（清空缓存时与磁盘一起清掉，让内存里不再留着已经删掉的条目）。
     pub(crate) fn clear(&self) {
         let mut inner = self.inner.lock().unwrap();
         inner.map.clear();
@@ -89,6 +88,17 @@ pub(crate) fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+/// 测试里共用的一把锁：图片缓存、结果缓存与存储占用几个模块的用例都在同一进程里，
+/// 各自会清空进程内的 LRU 表或改动图片缓存上限，串行跑才不会互相清掉对方的条目。
+#[cfg(test)]
+static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+#[cfg(test)]
+pub(crate) fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+    // 一个用例 panic 不该毒死其余用例
+    TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 #[cfg(test)]

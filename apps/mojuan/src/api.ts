@@ -246,6 +246,35 @@ export const deleteDownloaded = (dir: string, source: string, comicId: string) =
  * 表达不了「这个作品整个没了」，下载页据此重取快照。 */
 export const DOWNLOADS_CHANGED_EVENT = "download://changed";
 
+// ---------- 存储占用与清理 ----------
+
+/** 一类存储的占用：`bytes` 是字节数，`count` 是条数（下载那项是作品数）。 */
+export interface StorageUsageEntry {
+    bytes: number;
+    count: number;
+}
+
+/** 三项存储占用：图片缓存、结果缓存与下载（`storage_usage`）。 */
+export interface StorageUsage {
+    image: StorageUsageEntry;
+    result: StorageUsageEntry;
+    download: StorageUsageEntry;
+}
+
+/** 统计三项存储占用（图片缓存、结果缓存与下载）；扫描下载目录较慢，Rust 侧走阻塞线程。 */
+export const storageUsage = (dir: string): Promise<StorageUsage> =>
+    invoke<string>("storage_usage", { dir }).then((json) => JSON.parse(json) as StorageUsage);
+
+/** 清空图片缓存（磁盘 + 内存表）。 */
+export const clearImageCache = (): Promise<void> => invoke<void>("clear_image_cache");
+
+/** 清空结果缓存（磁盘 + 内存表）。 */
+export const clearResultCache = (): Promise<void> => invoke<void>("clear_result_cache");
+
+/** 设置图片缓存上限（字节；0 表示不限制），Rust 侧就地整理到上限以内。 */
+export const setImageCacheLimit = (bytes: number): Promise<void> =>
+    invoke<void>("set_image_cache_limit", { bytes });
+
 /** 某源最近一次错误（wayfinder #17：Sources 错误行 / Settings 源区）。 */
 export interface SourceError {
     message: string;

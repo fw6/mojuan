@@ -6,6 +6,7 @@ import {
     CloudUpload,
     FlaskConical,
     FolderOpen,
+    HardDrive,
     Info,
     RefreshCw,
     ScrollText,
@@ -62,6 +63,7 @@ import {
     type AnimatedBadgeStatus,
 } from "../components/beui/animated-badge";
 import { LinkButton, Loading, PageHeader, Panel, SettingRow, Tag } from "../components/ui";
+import { StorageOverview } from "../components/storage-overview";
 
 /** 备份文件名（grilling #25 #2：单文件聚合）。 */
 const BACKUP_FILE = "mojuan-backup.json";
@@ -644,6 +646,20 @@ export default function Settings() {
                             onCheckedChange={(v) => void toggleFollow(v)}
                             ariaLabel="书架追更"
                         />
+                    </SettingRow>
+                </Panel>
+
+                <Panel
+                    title="存储"
+                    desc="图片缓存、结果缓存与下载的占用"
+                    actions={<HardDrive className="size-4 text-muted-foreground" />}
+                >
+                    <StorageOverview />
+                    <SettingRow label="存储管理" hint="进入存储页，查看各项占用与清理缓存">
+                        <LinkButton to="/storage" variant="secondary" size="sm">
+                            <HardDrive className="size-3.5" />
+                            管理
+                        </LinkButton>
                     </SettingRow>
                 </Panel>
 

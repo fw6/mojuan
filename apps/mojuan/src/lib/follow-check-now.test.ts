@@ -4,14 +4,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // 手动路径不受节流限制且不改写时刻。
 
 vi.mock("../api", () => ({ crawl: vi.fn() }));
-vi.mock("./storage/settings", () => ({ getSettings: vi.fn(), setSettings: vi.fn() }));
+vi.mock("./storage/settings", () => ({ getSettings: vi.fn(), setSettings: vi.fn(), DEFAULT_IMAGE_CACHE_LIMIT: 1024 * 1024 * 1024 }));
 vi.mock("./storage/follow", () => ({ getFollowState: vi.fn(), setFollowState: vi.fn() }));
 vi.mock("./storage/progress", () => ({ getProgress: vi.fn() }));
 vi.mock("./storage/sources", () => ({ whenSourcesReady: vi.fn() }));
 
 import { runFollowCheckNow, FOLLOW_THROTTLE_MS } from "./follow-check";
 import { crawl, type Chapter, type Comic } from "../api";
-import { getSettings, setSettings, type Settings } from "./storage/settings";
+import { DEFAULT_IMAGE_CACHE_LIMIT, getSettings, setSettings, type Settings } from "./storage/settings";
 import { getFollowState, setFollowState } from "./storage/follow";
 import { getProgress } from "./storage/progress";
 import { whenSourcesReady } from "./storage/sources";
@@ -62,6 +62,7 @@ function settings(over: Partial<Settings> = {}): Settings {
         lastSource: null,
         lastCategory: {},
         followCheckedAt: null,
+        imageCacheLimit: DEFAULT_IMAGE_CACHE_LIMIT,
         ...over,
     };
 }

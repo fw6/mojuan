@@ -21,6 +21,7 @@ vi.mock("../api", () => ({
 vi.mock("../lib/storage/settings", () => ({
     getSettings: vi.fn(),
     rememberDiscovery: vi.fn().mockResolvedValue(undefined),
+    DEFAULT_IMAGE_CACHE_LIMIT: 1024 * 1024 * 1024,
 }));
 
 vi.mock("../lib/storage/sources", () => ({
@@ -29,7 +30,7 @@ vi.mock("../lib/storage/sources", () => ({
 }));
 
 import { crawl, crawlCached, sourceErrors } from "../api";
-import { getSettings, rememberDiscovery } from "../lib/storage/settings";
+import { DEFAULT_IMAGE_CACHE_LIMIT, getSettings, rememberDiscovery } from "../lib/storage/settings";
 import { persistSourceCache } from "../lib/storage/sources";
 import { applySources } from "../lib/sources";
 
@@ -48,6 +49,7 @@ const DEFAULT_SETTINGS = {
     lastSource: null as string | null,
     lastCategory: {} as Record<string, string>,
     followCheckedAt: null as number | null,
+    imageCacheLimit: DEFAULT_IMAGE_CACHE_LIMIT,
 };
 
 function comic(over: Partial<Comic> = {}): Comic {

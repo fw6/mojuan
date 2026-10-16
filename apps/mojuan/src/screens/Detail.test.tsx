@@ -35,6 +35,7 @@ vi.mock("../lib/storage/progress", () => ({
 
 vi.mock("../lib/storage/settings", () => ({
     getSettings: vi.fn().mockResolvedValue({ downloadDir: null }),
+    DEFAULT_IMAGE_CACHE_LIMIT: 1024 * 1024 * 1024,
 }));
 
 vi.mock("../lib/storage/comics", () => ({
@@ -51,7 +52,7 @@ import { getKnownComic } from "../lib/storage/comics";
 import { toggleFavorite } from "../lib/storage/favorites";
 import { getFollowState, setFollowState, type FollowRecord } from "../lib/storage/follow";
 import { getProgress } from "../lib/storage/progress";
-import { getSettings, type Settings } from "../lib/storage/settings";
+import { DEFAULT_IMAGE_CACHE_LIMIT, getSettings, type Settings } from "../lib/storage/settings";
 import { ToastProvider } from "../components/toast";
 
 const mockedCrawl = vi.mocked(crawl);
@@ -114,6 +115,7 @@ function settings(downloadDir: string | null): Settings {
         followCheckedAt: null,
         lastSource: null,
         lastCategory: {},
+        imageCacheLimit: DEFAULT_IMAGE_CACHE_LIMIT,
     };
 }
 

@@ -13,6 +13,10 @@ vi.mock("../api", () => ({
     sourceErrors: vi.fn(),
     imgSrc: (url: string) => url,
     setImgProxyDownloadDir: vi.fn(),
+    storageUsage: vi.fn(),
+    clearImageCache: vi.fn(),
+    clearResultCache: vi.fn(),
+    setImageCacheLimit: vi.fn(),
     webdavGet: vi.fn(),
     webdavPut: vi.fn(),
     otaCheck: vi.fn(),
@@ -73,6 +77,12 @@ vi.mock("@tauri-apps/plugin-process", () => ({
 }));
 
 import { mojuanVersion, sourceErrors } from "../api";
+import {
+    clearImageCache,
+    clearResultCache,
+    setImageCacheLimit,
+    storageUsage,
+} from "../api";
 import { getSettings, setSettings } from "../lib/storage/settings";
 import { getSources, getOrder } from "../lib/storage/sources";
 import { PageActiveContext } from "../lib/page-active";
@@ -83,6 +93,12 @@ const mockedGetSettings = vi.mocked(getSettings);
 const mockedSetSettings = vi.mocked(setSettings);
 const mockedSources = vi.mocked(getSources);
 const mockedOrder = vi.mocked(getOrder);
+const mockedStorageUsage = vi.mocked(storageUsage);
+const mockedClearImageCache = vi.mocked(clearImageCache);
+const mockedClearResultCache = vi.mocked(clearResultCache);
+const mockedSetImageCacheLimit = vi.mocked(setImageCacheLimit);
+
+const GB = 1024 * 1024 * 1024;
 
 function settings(over: Partial<Settings> = {}): Settings {
     return {
@@ -93,6 +109,7 @@ function settings(over: Partial<Settings> = {}): Settings {
         lastSource: null,
         lastCategory: {},
         followCheckedAt: null,
+        imageCacheLimit: GB,
         ...over,
     };
 }
@@ -117,6 +134,14 @@ beforeEach(() => {
     mockedSetSettings.mockResolvedValue(undefined);
     mockedSources.mockResolvedValue({});
     mockedOrder.mockResolvedValue([]);
+    mockedStorageUsage.mockResolvedValue({
+        image: { bytes: GB, count: 5 },
+        result: { bytes: 2 * 1024 * 1024, count: 12 },
+        download: { bytes: 3 * GB, count: 4 },
+    });
+    mockedClearImageCache.mockResolvedValue(undefined);
+    mockedClearResultCache.mockResolvedValue(undefined);
+    mockedSetImageCacheLimit.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -178,5 +203,44 @@ describe("设置页的「漫画源」段", () => {
         );
 
         expect(await screen.findByText("mysite")).toBeTruthy();
+    });
+});
+
+describe("设置页的「存储」段", () => {
+    it("显示图片缓存、结果缓存与下载三项占用", async () => {
+        renderSettings();
+        expect(await screen.findByText("图片缓存")).toBeTruthy();
+        expect(screen.getByText("结果缓存")).toBeTruthy();
+        expect(screen.getByText("下载")).toBeTruthy();
+        // 图片缓存 1.0 GB · 5 张（占用文本由 formatBytes 渲染）
+        expect(await screen.findByText("1.0 GB")).toBeTruthy();
+        expect(mockedStorageUsage).toHaveBeenCalledWith("/mock/Downloads/mojuan");
+    });
+
+    it("清空图片缓存会调用命令并重新取数", async () => {
+        renderSettings();
+        const button = await screen.findByRole("button", { name: "清空图片缓存" });
+        mockedStorageUsage.mockClear();
+        fireEvent.click(button);
+        await waitFor(() => expect(mockedClearImageCache).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(mockedStorageUsage).toHaveBeenCalledTimes(1));
+    });
+
+    it("改上限写进设置并推给 Rust 命令", async () => {
+        renderSettings();
+        const select = await screen.findByLabelText("图片缓存上限");
+        fireEvent.change(select, { target: { value: String(500 * 1024 * 1024) } });
+        await waitFor(() =>
+            expect(mockedSetSettings).toHaveBeenCalledWith({
+                imageCacheLimit: 500 * 1024 * 1024,
+            }),
+        );
+        expect(mockedSetImageCacheLimit).toHaveBeenCalledWith(500 * 1024 * 1024);
+    });
+
+    it("有进入存储页的入口", async () => {
+        renderSettings();
+        const link = await screen.findByRole("link", { name: /管理/ });
+        expect(link.getAttribute("href")).toBe("#/storage");
     });
 });
