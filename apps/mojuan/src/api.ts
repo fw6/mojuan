@@ -265,6 +265,24 @@ export interface StorageUsage {
 export const storageUsage = (dir: string): Promise<StorageUsage> =>
     invoke<string>("storage_usage", { dir }).then((json) => JSON.parse(json) as StorageUsage);
 
+/** 已下载作品的一条占用：`bytes` 是整部作品目录的递归字节数，`pages` 是页文件数
+ * （点开头的元数据文件不算页）。标题与封面取自下载目录里的作品元数据，没有就是空串。 */
+export interface DownloadComic {
+    source: string;
+    comicId: string;
+    title: string;
+    cover: string;
+    chapters: number;
+    pages: number;
+    bytes: number;
+}
+
+/** 按作品列出下载占用（存储页的下载列表）。返回顺序不定，消费方自己排。 */
+export const downloadComics = (dir: string): Promise<DownloadComic[]> =>
+    invoke<string>("download_comics", { dir }).then(
+        (json) => JSON.parse(json) as DownloadComic[],
+    );
+
 /** 清空图片缓存（磁盘 + 内存表）。 */
 export const clearImageCache = (): Promise<void> => invoke<void>("clear_image_cache");
 

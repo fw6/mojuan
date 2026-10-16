@@ -16,6 +16,7 @@ import { SettingRow } from "./ui";
  * 存储占用与缓存控制：图片缓存、结果缓存与下载三项占用，两个缓存各自一键清空，
  * 图片缓存上限一个下拉。设置页的「存储」段与整屏存储页顶部渲染的是同一份东西，
  * 数据来自同一个 `storage_usage` 命令。
+ * `refreshKey` 由消费方在别处改动磁盘之后（存储页删掉几部下载）递增，触发重新统计。
  */
 
 /** 图片缓存上限的可选档位（字节；0 表示不限制）。 */
@@ -27,7 +28,7 @@ const LIMIT_OPTIONS: { value: number; label: string }[] = [
     { value: 5 * 1024 * 1024 * 1024, label: "5 GB" },
 ];
 
-export function StorageOverview() {
+export function StorageOverview({ refreshKey = 0 }: { refreshKey?: number }) {
     const [usage, setUsage] = useState<StorageUsage | null>(null);
     const [limit, setLimit] = useState(0);
     const [busy, setBusy] = useState<"image" | "result" | null>(null);
@@ -48,7 +49,7 @@ export function StorageOverview() {
     useEffect(() => {
         if (!active) return;
         void refresh();
-    }, [active, refresh]);
+    }, [active, refresh, refreshKey]);
 
     async function clear(kind: "image" | "result") {
         setBusy(kind);

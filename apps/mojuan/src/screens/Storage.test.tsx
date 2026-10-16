@@ -3,15 +3,20 @@ import { render, screen, waitFor, fireEvent, cleanup } from "@testing-library/re
 import { MemoryRouter } from "react-router-dom";
 import StoragePage from "./Storage";
 import type { Settings } from "../lib/storage/settings";
+import type { DownloadComic } from "../api";
 
-// S1 seam：存储页。mock api 层与存储域，验证顶部三项占用、两个清空按钮与上限下拉；
-// 下面的下载管理由后续工单填上，这里只测顶部这块。
+// S1 seam：存储页。mock api 层与存储域，验证顶部三项占用、两个清空按钮与上限下拉，
+// 以及下载列表的排序、选择模式与批量删除。
 
 vi.mock("../api", () => ({
     storageUsage: vi.fn(),
     clearImageCache: vi.fn(),
     clearResultCache: vi.fn(),
     setImageCacheLimit: vi.fn(),
+    downloadComics: vi.fn(),
+    deleteDownloaded: vi.fn(),
+    imgSrc: vi.fn((url: string) => url),
+    FLAT_SOURCE: "local",
 }));
 
 vi.mock("../lib/storage/settings", () => ({
@@ -19,20 +24,42 @@ vi.mock("../lib/storage/settings", () => ({
     setSettings: vi.fn(),
 }));
 
-import { storageUsage, clearResultCache, setImageCacheLimit } from "../api";
+vi.mock("../lib/sources", () => ({
+    sourceTitle: (id: string) => id,
+}));
+
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+    confirm: vi.fn(),
+}));
+
+import {
+    storageUsage,
+    clearResultCache,
+    setImageCacheLimit,
+    downloadComics,
+    deleteDownloaded,
+    imgSrc,
+} from "../api";
 import { getSettings, setSettings } from "../lib/storage/settings";
+import { confirm } from "@tauri-apps/plugin-dialog";
 
 const mockedUsage = vi.mocked(storageUsage);
 const mockedClearResult = vi.mocked(clearResultCache);
 const mockedSetLimit = vi.mocked(setImageCacheLimit);
+const mockedDownloadComics = vi.mocked(downloadComics);
+const mockedDeleteDownloaded = vi.mocked(deleteDownloaded);
+const mockedImgSrc = vi.mocked(imgSrc);
+const mockedConfirm = vi.mocked(confirm);
 const mockedGetSettings = vi.mocked(getSettings);
 const mockedSetSettings = vi.mocked(setSettings);
 
 const GB = 1024 * 1024 * 1024;
+const MB = 1024 * 1024;
+const DOWNLOAD_DIR = "/mock/Downloads/mojuan";
 
-function settings(): Settings {
+function settings(patch: Partial<Settings> = {}): Settings {
     return {
-        downloadDir: "/mock/Downloads/mojuan",
+        downloadDir: DOWNLOAD_DIR,
         darkMode: false,
         autoTrim: false,
         followUpdate: true,
@@ -40,7 +67,23 @@ function settings(): Settings {
         lastCategory: {},
         followCheckedAt: null,
         imageCacheLimit: GB,
+        ...patch,
     };
+}
+
+/** 一部已下载作品的占用记录；只有 source 与 comicId 必填。 */
+function downloadComic(
+    patch: Partial<DownloadComic> & { source: string; comicId: string },
+): DownloadComic {
+    return { title: "", cover: "", chapters: 1, pages: 1, bytes: 0, ...patch };
+}
+
+function renderStorage() {
+    return render(
+        <MemoryRouter>
+            <StoragePage />
+        </MemoryRouter>,
+    );
 }
 
 beforeEach(() => {
@@ -49,11 +92,14 @@ beforeEach(() => {
     mockedSetSettings.mockResolvedValue(undefined);
     mockedUsage.mockResolvedValue({
         image: { bytes: GB, count: 5 },
-        result: { bytes: 2 * 1024 * 1024, count: 12 },
+        result: { bytes: 2 * MB, count: 12 },
         download: { bytes: 3 * GB, count: 4 },
     });
     mockedClearResult.mockResolvedValue(undefined);
     mockedSetLimit.mockResolvedValue(undefined);
+    mockedDownloadComics.mockResolvedValue([]);
+    mockedDeleteDownloaded.mockResolvedValue(undefined);
+    mockedConfirm.mockResolvedValue(true);
 });
 
 afterEach(() => {
@@ -62,26 +108,18 @@ afterEach(() => {
 
 describe("存储页顶部", () => {
     it("显示三项占用与两个清空按钮", async () => {
-        render(
-            <MemoryRouter>
-                <StoragePage />
-            </MemoryRouter>,
-        );
+        renderStorage();
         expect(await screen.findByText("图片缓存")).toBeTruthy();
         expect(screen.getByText("结果缓存")).toBeTruthy();
-        expect(screen.getByText("下载")).toBeTruthy();
+        expect(screen.getByText("4 部")).toBeTruthy();
         expect(await screen.findByText("1.0 GB")).toBeTruthy();
         expect(screen.getByRole("button", { name: "清空图片缓存" })).toBeTruthy();
         expect(screen.getByRole("button", { name: "清空结果缓存" })).toBeTruthy();
-        expect(mockedUsage).toHaveBeenCalledWith("/mock/Downloads/mojuan");
+        expect(mockedUsage).toHaveBeenCalledWith(DOWNLOAD_DIR);
     });
 
     it("清空结果缓存会调用命令并重新取数", async () => {
-        render(
-            <MemoryRouter>
-                <StoragePage />
-            </MemoryRouter>,
-        );
+        renderStorage();
         const button = await screen.findByRole("button", { name: "清空结果缓存" });
         mockedUsage.mockClear();
         fireEvent.click(button);
@@ -90,16 +128,194 @@ describe("存储页顶部", () => {
     });
 
     it("改上限写进设置并推给 Rust 命令", async () => {
-        render(
-            <MemoryRouter>
-                <StoragePage />
-            </MemoryRouter>,
-        );
+        renderStorage();
         const select = await screen.findByLabelText("图片缓存上限");
         fireEvent.change(select, { target: { value: String(2 * GB) } });
         await waitFor(() =>
             expect(mockedSetSettings).toHaveBeenCalledWith({ imageCacheLimit: 2 * GB }),
         );
         expect(mockedSetLimit).toHaveBeenCalledWith(2 * GB);
+    });
+});
+
+describe("存储页的下载列表", () => {
+    it("按占用从大到小列出，每行有封面、标题、源、话数与占用", async () => {
+        mockedDownloadComics.mockResolvedValue([
+            downloadComic({
+                source: "webtoons",
+                comicId: "c1",
+                title: "作品甲",
+                cover: "https://x/a.jpg",
+                chapters: 2,
+                pages: 10,
+                bytes: 100 * MB,
+            }),
+            downloadComic({
+                source: "mangadex",
+                comicId: "c2",
+                title: "作品乙",
+                chapters: 5,
+                pages: 30,
+                bytes: 1.5 * GB,
+            }),
+        ]);
+        renderStorage();
+
+        // 占用最大的排在最前面
+        const titles = await screen.findAllByText(/作品[甲乙]/);
+        expect(titles.map((t) => t.textContent)).toEqual(["作品乙", "作品甲"]);
+        expect(screen.getByText("mangadex")).toBeTruthy();
+        expect(screen.getByText("5 话")).toBeTruthy();
+        expect(screen.getByText("1.5 GB")).toBeTruthy();
+        expect(screen.getByText("100 MB")).toBeTruthy();
+        // 封面经 imgSrc 拼地址
+        expect(mockedImgSrc).toHaveBeenCalledWith("https://x/a.jpg", {
+            source: "webtoons",
+            comicId: "c1",
+        });
+    });
+
+    it("标题为空时回落到 comicId，封面为空时给占位", async () => {
+        mockedDownloadComics.mockResolvedValue([
+            downloadComic({ source: "webtoons", comicId: "c1", title: "", cover: "" }),
+        ]);
+        const { container } = renderStorage();
+
+        expect(await screen.findByText("c1")).toBeTruthy();
+        // 空封面不拼地址，Cover 收到空串走占位（不发图片请求）
+        expect(mockedImgSrc).not.toHaveBeenCalled();
+        expect(container.querySelector("img")).toBeNull();
+    });
+
+    it("统计中显示加载态", async () => {
+        mockedDownloadComics.mockImplementation(() => new Promise(() => {}));
+        renderStorage();
+        expect((await screen.findAllByText("正在统计下载占用")).length).toBeGreaterThan(0);
+    });
+
+    it("还没有下载时给空状态", async () => {
+        renderStorage();
+        expect(await screen.findByText("还没有下载的漫画")).toBeTruthy();
+        expect(screen.getByText("在作品页选中章节下载，没网也能看")).toBeTruthy();
+    });
+
+    it("没有设置下载位置时指向设置页", async () => {
+        mockedGetSettings.mockResolvedValue(settings({ downloadDir: null }));
+        renderStorage();
+        expect(await screen.findByText("还没有设置下载位置")).toBeTruthy();
+        expect(mockedDownloadComics).not.toHaveBeenCalled();
+    });
+
+    it("统计失败时给出错误横幅", async () => {
+        mockedDownloadComics.mockRejectedValue("读取目录失败");
+        renderStorage();
+        expect(await screen.findByText(/读取下载列表失败/)).toBeTruthy();
+    });
+});
+
+describe("存储页的批量删除", () => {
+    const items = [
+        downloadComic({
+            source: "webtoons",
+            comicId: "c1",
+            title: "作品甲",
+            chapters: 2,
+            bytes: GB,
+        }),
+        downloadComic({
+            source: "mangadex",
+            comicId: "c2",
+            title: "作品乙",
+            chapters: 5,
+            bytes: GB,
+        }),
+    ];
+
+    async function enterSelection() {
+        renderStorage();
+        await screen.findByText("作品甲");
+        fireEvent.click(screen.getByRole("button", { name: "选择" }));
+    }
+
+    it("选择模式下每行出现勾选框，整行点击切换选中", async () => {
+        mockedDownloadComics.mockResolvedValue(items);
+        await enterSelection();
+
+        expect(screen.getAllByRole("checkbox")).toHaveLength(2);
+        expect(screen.getByText("已选 0 部 · 合计 0 B")).toBeTruthy();
+
+        // 点行的任何位置（这里点标题）都算选中
+        fireEvent.click(screen.getByText("作品乙").closest("label")!);
+        expect(screen.getByText("已选 1 部 · 合计 1.0 GB")).toBeTruthy();
+
+        // 再点一次取消选中
+        fireEvent.click(screen.getByText("作品乙").closest("label")!);
+        expect(screen.getByText("已选 0 部 · 合计 0 B")).toBeTruthy();
+    });
+
+    it("全选与取消全选，未选中时删除按钮禁用", async () => {
+        mockedDownloadComics.mockResolvedValue(items);
+        await enterSelection();
+
+        expect((screen.getByRole("button", { name: "删除所选" }) as HTMLButtonElement).disabled).toBe(
+            true,
+        );
+
+        fireEvent.click(screen.getByRole("button", { name: "全选" }));
+        expect(screen.getByText("已选 2 部 · 合计 2.0 GB")).toBeTruthy();
+
+        fireEvent.click(screen.getByRole("button", { name: "取消全选" }));
+        expect(screen.getByText("已选 0 部 · 合计 0 B")).toBeTruthy();
+        expect((screen.getByRole("button", { name: "删除所选" }) as HTMLButtonElement).disabled).toBe(
+            true,
+        );
+    });
+
+    it("删除所选：确认框给出部数与将释放的字节数，逐部删除并刷新列表与占用", async () => {
+        mockedDownloadComics.mockResolvedValue(items);
+        await enterSelection();
+        fireEvent.click(screen.getByRole("button", { name: "全选" }));
+
+        const listCalls = mockedDownloadComics.mock.calls.length;
+        const usageCalls = mockedUsage.mock.calls.length;
+        fireEvent.click(screen.getByRole("button", { name: "删除所选" }));
+
+        await waitFor(() => expect(mockedConfirm).toHaveBeenCalledTimes(1));
+        expect(mockedConfirm.mock.calls[0][0]).toBe(
+            "删除所选 2 部作品？将释放 2.0 GB，删除后需要重新下载。",
+        );
+
+        await waitFor(() => expect(mockedDeleteDownloaded).toHaveBeenCalledTimes(2));
+        expect(mockedDeleteDownloaded).toHaveBeenCalledWith(DOWNLOAD_DIR, "webtoons", "c1");
+        expect(mockedDeleteDownloaded).toHaveBeenCalledWith(DOWNLOAD_DIR, "mangadex", "c2");
+
+        // 列表与占用都重新取，选择模式退出
+        await waitFor(() => expect(mockedDownloadComics.mock.calls.length).toBeGreaterThan(listCalls));
+        await waitFor(() => expect(mockedUsage.mock.calls.length).toBeGreaterThan(usageCalls));
+        await waitFor(() => expect(screen.queryAllByRole("checkbox")).toHaveLength(0));
+    });
+
+    it("确认框里点取消就不删除", async () => {
+        mockedDownloadComics.mockResolvedValue(items);
+        mockedConfirm.mockResolvedValue(false);
+        await enterSelection();
+        fireEvent.click(screen.getByRole("button", { name: "全选" }));
+
+        fireEvent.click(screen.getByRole("button", { name: "删除所选" }));
+
+        await waitFor(() => expect(mockedConfirm).toHaveBeenCalledTimes(1));
+        expect(mockedDeleteDownloaded).not.toHaveBeenCalled();
+    });
+
+    it("取消退出选择模式并清空选中", async () => {
+        mockedDownloadComics.mockResolvedValue(items);
+        await enterSelection();
+        fireEvent.click(screen.getByRole("button", { name: "全选" }));
+
+        fireEvent.click(screen.getByRole("button", { name: "取消" }));
+        expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+
+        fireEvent.click(screen.getByRole("button", { name: "选择" }));
+        expect(screen.getByText("已选 0 部 · 合计 0 B")).toBeTruthy();
     });
 });

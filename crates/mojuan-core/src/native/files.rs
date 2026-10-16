@@ -240,6 +240,63 @@ pub fn download_usage(dir: &str) -> (u64, usize) {
     (bytes, comics.len())
 }
 
+/// 该作品的页文件数：各 `chapter_*` 目录的直接子文件，点开头的元数据文件不算页
+/// （与 `list_downloaded_with_urls` 同一口径）。
+fn page_count(comic_path: &Path) -> usize {
+    let Ok(entries) = fs::read_dir(comic_path) else {
+        return 0;
+    };
+    let mut total = 0;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if chapter_index_from_dir_name(&name).is_none() {
+            continue;
+        }
+        let Ok(files) = fs::read_dir(entry.path()) else {
+            continue;
+        };
+        total += files
+            .flatten()
+            .filter(|f| f.path().is_file() && !f.file_name().to_string_lossy().starts_with('.'))
+            .count();
+    }
+    total
+}
+
+/// 按作品列出下载占用：`[{source, comicId, title, cover, chapters, pages, bytes}]`。
+/// `title` 与 `cover` 取自作品目录里的 `comic.json`（没有就空串）；`chapters` 是 `chapter_*`
+/// 目录数；`pages` 是全部页文件数；`bytes` 是整部作品目录的递归字节数（含页清单等元数据文件）。
+/// 作品判定复用 `comic_dirs`，命名空间与扁平两种布局都算。只读本地文件。
+pub fn download_comics(dir: &str) -> String {
+    let base = Path::new(dir);
+    let mut arr = Vec::new();
+    for path in comic_dirs(dir) {
+        // 扁平条目落在下载目录的下一层：它的父目录就是下载目录本身
+        let source = match path.parent() {
+            Some(parent) if parent != base => {
+                parent.file_name().map(|n| n.to_string_lossy().into_owned())
+            }
+            _ => Some(FLAT_SOURCE.to_string()),
+        }
+        .unwrap_or_default();
+        let comic_id = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let meta = comic_meta::read(dir, &source, &comic_id);
+        arr.push(json!({
+            "source": source,
+            "comicId": comic_id,
+            "title": meta.as_ref().map(|m| m.title.clone()).unwrap_or_default(),
+            "cover": meta.as_ref().map(|m| m.cover.clone()).unwrap_or_default(),
+            "chapters": chapter_count(&path),
+            "pages": page_count(&path),
+            "bytes": dir_size(&path),
+        }));
+    }
+    Value::Array(arr).to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -477,6 +534,91 @@ mod tests {
         .unwrap();
 
         assert_eq!(download_usage(dir.to_str().unwrap()), (35, 2));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 按作品列出占用：字节数（递归，含页清单等元数据文件）、话数与页数都对；
+    /// 标题与封面取自 `comic.json`；点开头的元数据文件不算页；没有 chapter_* 的目录不算作品。
+    #[test]
+    fn download_comics_lists_each_comic_with_its_occupancy() {
+        let dir = temp_dir("comics");
+        let base = dir.to_str().unwrap();
+        let comic_a = dir.join("webtoons").join("comic-a");
+        let chapter1 = comic_a.join("chapter_1");
+        let chapter2 = comic_a.join("chapter_2");
+        fs::create_dir_all(&chapter1).unwrap();
+        fs::create_dir_all(&chapter2).unwrap();
+        fs::write(chapter1.join("0.jpg"), vec![0u8; 10]).unwrap();
+        fs::write(chapter1.join("1.jpg"), vec![0u8; 20]).unwrap();
+        fs::write(chapter1.join(".pages.json"), vec![0u8; 7]).unwrap();
+        fs::write(chapter2.join("0.jpg"), vec![0u8; 30]).unwrap();
+        comic_meta::record_chapter(
+            base,
+            "webtoons",
+            "comic-a",
+            "作品甲",
+            "https://x/a.jpg",
+            1,
+            "第 1 话",
+        );
+
+        // 扁平布局的旧下载：没有 comic.json，标题与封面为空串
+        let flat = dir.join("comic-b").join("chapter_3");
+        fs::create_dir_all(&flat).unwrap();
+        fs::write(flat.join("0.webp"), vec![0u8; 5]).unwrap();
+
+        // 没有 chapter_* 的目录不算作品，它的文件也不计
+        fs::create_dir_all(dir.join("mangadex").join("comic-c").join("misc")).unwrap();
+        fs::write(
+            dir.join("mangadex")
+                .join("comic-c")
+                .join("misc")
+                .join("x.bin"),
+            vec![0u8; 99],
+        )
+        .unwrap();
+
+        let listed: Vec<Value> = serde_json::from_str(&download_comics(base)).unwrap();
+        let mut keys: Vec<String> = listed
+            .iter()
+            .map(|v| {
+                format!(
+                    "{}:{}",
+                    v["source"].as_str().unwrap(),
+                    v["comicId"].as_str().unwrap()
+                )
+            })
+            .collect();
+        keys.sort();
+        assert_eq!(keys, vec!["local:comic-b", "webtoons:comic-a"]);
+
+        // 期望字节数从磁盘上的实际文件算出（含写进作品目录的 comic.json）
+        let expected_a: u64 = [
+            "chapter_1/0.jpg",
+            "chapter_1/1.jpg",
+            "chapter_1/.pages.json",
+            "chapter_2/0.jpg",
+            "comic.json",
+        ]
+        .iter()
+        .map(|rel| fs::metadata(comic_a.join(rel)).unwrap().len())
+        .sum();
+
+        let a = listed.iter().find(|v| v["comicId"] == "comic-a").unwrap();
+        assert_eq!(a["title"], "作品甲");
+        assert_eq!(a["cover"], "https://x/a.jpg");
+        assert_eq!(a["chapters"], 2);
+        assert_eq!(a["pages"], 3); // .pages.json 不算页
+        assert_eq!(a["bytes"], expected_a);
+
+        let b = listed.iter().find(|v| v["comicId"] == "comic-b").unwrap();
+        assert_eq!(b["source"], "local");
+        assert_eq!(b["title"], "");
+        assert_eq!(b["cover"], "");
+        assert_eq!(b["chapters"], 1);
+        assert_eq!(b["pages"], 1);
+        assert_eq!(b["bytes"], 5);
 
         let _ = fs::remove_dir_all(&dir);
     }

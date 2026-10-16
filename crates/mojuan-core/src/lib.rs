@@ -96,6 +96,12 @@ pub fn storage_usage(cache_dir: &str, download_dir: &str) -> String {
     .to_string()
 }
 
+/// 按作品列出下载占用：返回 JSON `[{source, comicId, title, cover, chapters, pages, bytes}]`
+/// （字节数是整部作品目录的递归字节数）。只读本地文件。
+pub fn download_comics(dir: &str) -> String {
+    native::files::download_comics(dir)
+}
+
 /// 清空图片缓存：删掉磁盘上的条目并清空内存表（不碰下载目录）。
 pub fn clear_image_cache(cache_dir: &str) {
     cache::clear(cache_dir);
