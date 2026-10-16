@@ -28,6 +28,7 @@ import {
     webdavPut,
     webdavGet,
     storageUsage,
+    downloadUsage,
     checkDownload,
     clearImageCache,
     clearResultCache,
@@ -464,6 +465,30 @@ describe("下载任务队列 API（wayfinder #20/#22/#23）", () => {
                 referer: "",
             }),
         ).resolves.toEqual({ result: "nothingToRepair", pages: 0, progress: null });
+
+        // 源给不出页表：带上原因，调用方据此如实呈现
+        mockedInvoke.mockResolvedValue(
+            JSON.stringify({
+                result: "noPageTable",
+                pages: 0,
+                progress: null,
+                reason: "没有页清单，源也没有给出第 1 话的页表",
+            }),
+        );
+        await expect(
+            repairDownload({
+                dir: "/tmp/dl",
+                source: "webtoons",
+                comicId: "a",
+                chapterIndex: 1,
+                referer: "",
+            }),
+        ).resolves.toEqual({
+            result: "noPageTable",
+            pages: 0,
+            progress: null,
+            reason: "没有页清单，源也没有给出第 1 话的页表",
+        });
     });
 
     it("subscribeDownloads 把 Channel 传给 subscribe_downloads", async () => {
@@ -506,6 +531,34 @@ describe("存储占用与清理 API", () => {
         expect(mockedInvoke).toHaveBeenCalledWith("set_image_cache_limit", {
             bytes: 1024 * 1024 * 1024,
         });
+    });
+
+    it("downloadUsage 把下载目录传给 download_usage 并解析每部作品的占用", async () => {
+        mockedInvoke.mockResolvedValue(
+            JSON.stringify([
+                {
+                    source: "webtoons",
+                    comicId: "c1",
+                    title: "作品甲",
+                    cover: "https://x/a.jpg",
+                    chapters: 2,
+                    pages: 10,
+                    bytes: 100,
+                },
+            ]),
+        );
+        await expect(downloadUsage("/tmp/dl")).resolves.toEqual([
+            {
+                source: "webtoons",
+                comicId: "c1",
+                title: "作品甲",
+                cover: "https://x/a.jpg",
+                chapters: 2,
+                pages: 10,
+                bytes: 100,
+            },
+        ]);
+        expect(mockedInvoke).toHaveBeenCalledWith("download_usage", { dir: "/tmp/dl" });
     });
 
     it("checkDownload 传下载目录、源与作品 id，解析逐话结果与合计", async () => {

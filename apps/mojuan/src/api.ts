@@ -239,15 +239,18 @@ export const retryDownload = (taskId: string): Promise<DownloadProgress | null> 
 /** 清空已完成（done/failed/cancelled），返回移除数量。 */
 export const clearDownloads = () => invoke<number>("clear_downloads");
 
-/** 补下一话的结果（`repair_download`）：没有要补的页时是 nothingToRepair，其余是入队结果。 */
-export type RepairResult = "queued" | "alreadyQueued" | "nothingToRepair";
+/** 补下一话的结果（`repair_download`）：没有要补的页时是 nothingToRepair，源给不出页表时是
+ * noPageTable（带原因），其余是入队结果。 */
+export type RepairResult = "queued" | "alreadyQueued" | "nothingToRepair" | "noPageTable";
 
 export interface RepairOutcome {
     result: RepairResult;
-    /** 这一话要补的页数（nothingToRepair 时是 0）。 */
+    /** 这一话要补的页数（没有入队的结果都是 0）。 */
     pages: number;
     /** 入队后的任务进度；没有入队时为 null。 */
     progress: DownloadProgress | null;
+    /** noPageTable 时的原因（回源取数失败、源确实没有页表等）。 */
+    reason?: string;
 }
 
 /** 补下一话缺失或损坏的页：有页清单的用清单里的页序，没有页清单的旧下载从源取一次这一话的
@@ -303,8 +306,8 @@ export interface DownloadComic {
 }
 
 /** 按作品列出下载占用（存储页的下载列表）。返回顺序不定，消费方自己排。 */
-export const downloadComics = (dir: string): Promise<DownloadComic[]> =>
-    invoke<string>("download_comics", { dir }).then(
+export const downloadUsage = (dir: string): Promise<DownloadComic[]> =>
+    invoke<string>("download_usage", { dir }).then(
         (json) => JSON.parse(json) as DownloadComic[],
     );
 

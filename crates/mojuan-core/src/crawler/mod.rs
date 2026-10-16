@@ -28,14 +28,26 @@ use serde_json::Value;
 /// 分发并返回 JSON 字符串。未知 source/op 按列表类返回 `[]`。
 /// `cache_dir`：结果缓存目录（空串禁用）；成功结果在此留一份供 `cached_result` 读取。
 pub fn crawl(op: &str, source: &str, payload: &str, cache_dir: &str) -> String {
+    crawl_checked(op, source, payload, cache_dir).0
+}
+
+/// 与 `crawl` 同一条路，另把「本次取数是否成功」交给调用方：取数失败与「源确实给出空结果」
+/// 返回的 JSON 都是空表，只有这个成功标志能分清。补下要靠它区分「源没有给出页表」与
+/// 「回源取数失败」。只在 crate 内使用，公开面仍是 `crawl`。
+pub(crate) fn crawl_checked(
+    op: &str,
+    source: &str,
+    payload: &str,
+    cache_dir: &str,
+) -> (String, bool) {
     let Some(entry) = registry::get(source) else {
-        return "[]".into();
+        return ("[]".into(), false);
     };
     let (out, ok) = dispatch(&entry, op, payload);
     if ok {
         result_cache::put(cache_dir, source, op, payload, &entry.json, &out);
     }
-    out
+    (out, ok)
 }
 
 /// 读取缓存的抓取结果（不触发网络）。命中返回 `{"data": <结果>, "fetchedAt": <unix_ms>}`，

@@ -4,7 +4,7 @@
 //! 页清单是「这一话应该有什么」的记录：完整性检查与补下都以它为准；旧下载没有这份文件。
 //! 文件名以点开头，话目录的页列表与页数统计把它当元数据，不列出来。
 //!
-//! 「这一页在磁盘上是什么状态」的判定只有一处（`page_state`），完整性检查与修复入队共用：
+//! 「这一页在磁盘上是什么状态」的判定只有一处（`page_state_at`），完整性检查与修复入队共用：
 //! 页文件存在且非空；并且当页清单里有这一页的记录时，字节数要与记录一致。页清单不存在
 //! （旧下载）时，判定退化为「文件存在且非空」。
 
@@ -125,8 +125,9 @@ pub enum PageState {
     Broken,
 }
 
-/// 这一页在磁盘上是否完整（`page_state` 的布尔形式）。
-pub fn page_complete(
+/// 这一页在磁盘上是否完整（`page_state` 的布尔形式）。测试便利函数。
+#[cfg(test)]
+pub(crate) fn page_complete(
     dir: &str,
     source: &str,
     comic_id: &str,
@@ -137,11 +138,10 @@ pub fn page_complete(
     page_state(dir, source, comic_id, chapter_index, page_index, url) == PageState::Complete
 }
 
-/// 这一页在磁盘上的状态。
-///
-/// 语义：页文件存在且非空；并且当页清单里有这一页的记录时，字节数要与记录一致。
-/// 页清单不存在（旧下载）时，判定退化为「文件存在且非空」。
-pub fn page_state(
+/// 这一页在磁盘上的状态（按目录、源、作品与页号定位页清单）。测试便利函数；
+/// 逐页检查与修复入队的生产路径用 `page_state_at`（页清单由调用方给出，不必每页重读）。
+#[cfg(test)]
+pub(crate) fn page_state(
     dir: &str,
     source: &str,
     comic_id: &str,

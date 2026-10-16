@@ -87,19 +87,19 @@ pub fn delete_downloaded(dir: &str, source: &str, comic_id: &str) -> Result<bool
 pub fn storage_usage(cache_dir: &str, download_dir: &str) -> String {
     let (image_bytes, image_count) = cache::usage(cache_dir);
     let (result_bytes, result_count) = crawler::result_cache::usage(cache_dir);
-    let (download_bytes, download_comics) = native::files::download_usage(download_dir);
+    let (download_bytes, download_count) = native::files::download_totals(download_dir);
     serde_json::json!({
         "image": { "bytes": image_bytes, "count": image_count },
         "result": { "bytes": result_bytes, "count": result_count },
-        "download": { "bytes": download_bytes, "count": download_comics },
+        "download": { "bytes": download_bytes, "count": download_count },
     })
     .to_string()
 }
 
 /// 按作品列出下载占用：返回 JSON `[{source, comicId, title, cover, chapters, pages, bytes}]`
 /// （字节数是整部作品目录的递归字节数）。只读本地文件。
-pub fn download_comics(dir: &str) -> String {
-    native::files::download_comics(dir)
+pub fn download_usage(dir: &str) -> String {
+    native::files::download_usage(dir)
 }
 
 /// 完整性检查：返回 JSON
@@ -108,25 +108,6 @@ pub fn download_comics(dir: &str) -> String {
 /// 页号是 0 基（与下载命名一致）。只读本地文件，不发网络请求。
 pub fn check_download(dir: &str, source: &str, comic_id: &str) -> String {
     native::integrity::check(dir, source, comic_id)
-}
-
-/// 这一话有没有页清单（补下据此决定要不要回源取页表）。只读本地文件。
-pub fn has_page_manifest(dir: &str, source: &str, comic_id: &str, chapter_index: i64) -> bool {
-    native::page_manifest::read(dir, source, comic_id, chapter_index).is_some()
-}
-
-/// 补下一话：算出这一话要补的页并建出修复任务。没有要补的页（每一页都完整）返回 `None`，
-/// 调用方据此返回「没有需要补的页」而不入队。
-/// 有页清单的用清单里的页序；没有的用 `page_table`（源给出的页表）重建页序。
-pub fn repair_task(
-    dir: &str,
-    source: &str,
-    comic_id: &str,
-    chapter_index: i64,
-    referer: &str,
-    page_table: &[String],
-) -> Option<DownloadTask> {
-    native::repair::task(dir, source, comic_id, chapter_index, referer, page_table)
 }
 
 /// 清空图片缓存：删掉磁盘上的条目并清空内存表（不碰下载目录）。
@@ -146,9 +127,10 @@ pub fn set_image_cache_limit(cache_dir: &str, bytes: u64) {
 
 // 下载运行时（wayfinder #20/#22）：队列状态机、并发、重试、取消与进度推送同处 core；
 // 宿主只接页面下载（core 已内置）与进度出口（构造时传入的回调）。
+// 补下（回源取页表 + 算要补的页 + 建修复任务）也在运行时里，宿主只调一次。
 pub use native::download::{DownloadRuntime, PageDownloader, ProgressSink, DEFAULT_WORKERS};
-pub use native::page_manifest::PageEntry;
 pub use native::queue::{DownloadProgress, DownloadTask, DownloadTaskView, EnqueueResult};
+pub use native::repair::RepairOutcome;
 
 #[cfg(test)]
 mod tests {

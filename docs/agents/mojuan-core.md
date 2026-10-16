@@ -93,6 +93,11 @@
   就能跑同一份策略代码，`run_task` 是测试面（worker 循环之外直接驱动，不依赖线程与等待）。
 - 入队的磁盘去重（`files::chapter_downloaded`）在运行时内部；`enqueue` 返回入队结果与该任务
   此刻的进度，`cancel`/`retry` 返回最新进度。`DownloadTask::new` 由队列层派生 taskId。
+- 补下（存储页的「重新下载缺失的页」）也是运行时的一个方法：`DownloadRuntime::repair` 有页清单的
+  用清单页序，没有的回源取一次 `images` 页表再重建页序，只把不完整的页入队，返回一个四态枚举
+  （正常入队并带要补的页数 / 同一 taskId 已在队列 / 每一页都完整无需补 / 没有页清单且源也给不出
+  页表并带原因），由宿主的命令层转成 JSON。回源取数失败与结果解析失败都如实写进原因，不谎报成
+  「源没有这一话」。
 - `files::download_image` 返回 `Result<(), String>`（失败原因来自 HTTP 状态与写盘错误）；
   整话失败时原因写进进度事件的 `error`（`第 N 页下载失败：<原因>`）。
 - 删除整部作品：`DownloadRuntime::drop_comic` 先把该作品的任务从队列移除，再等 worker 从当前页

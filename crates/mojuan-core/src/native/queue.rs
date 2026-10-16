@@ -21,7 +21,7 @@ pub enum TaskStatus {
 }
 
 /// 进度事件载荷（grilling #22 #6 定案）：`{taskId, status, done, total, error?}`。
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadProgress {
     pub task_id: String,
@@ -55,7 +55,7 @@ pub struct DownloadTaskView {
 
 /// 一个下载任务 = 一话。`pages` 是这一话完整的页序（写页清单用）；`pending` 是本次要下载
 /// 的页在 `pages` 里的下标——普通入队是全部、修复入队只含不完整的页。
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DownloadTask {
     pub task_id: String,
     pub source: String,
@@ -75,9 +75,37 @@ pub struct DownloadTask {
 }
 
 impl DownloadTask {
-    /// 一话的普通下载任务：下全部页。taskId 由 `source/comicId/chapterIndex` 派生，状态从 queued 起。
+    /// 一话的普通下载任务：下全部页。页序就是 URL 数组的下标（0 基，与 `page_rel_path`
+    /// 的页号一致）。taskId 由 `source/comicId/chapterIndex` 派生，状态从 queued 起。
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        source: &str,
+        comic_id: &str,
+        comic_title: &str,
+        comic_cover: &str,
+        chapter_index: i64,
+        chapter_title: &str,
+        dir: &str,
+        referer: &str,
+        urls: &[String],
+    ) -> Self {
+        Self::with_pages(
+            source,
+            comic_id,
+            comic_title,
+            comic_cover,
+            chapter_index,
+            chapter_title,
+            dir,
+            referer,
+            PageEntry::from_urls(urls),
+        )
+    }
+
+    /// 核心内部构造：页序由调用方给出（修复路径从页清单取这一话完整的页序）。
+    /// 宿主一律走 `new`（它只给一串页 URL）。
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn with_pages(
         source: &str,
         comic_id: &str,
         comic_title: &str,
@@ -109,8 +137,8 @@ impl DownloadTask {
     }
 
     /// 转成修复任务：`pages` 仍是这一话完整的页序（写页清单用），只下 `pending` 里的页
-    /// （`pages` 的下标，由调用方按「这一页是否完整」算出来）。
-    pub fn into_repair(mut self, pending: Vec<usize>) -> Self {
+    /// （`pages` 的下标，由调用方按「这一页是否完整」算出来）。只有核心的补下路径用它。
+    pub(crate) fn into_repair(mut self, pending: Vec<usize>) -> Self {
         self.pending = pending;
         self.repair = true;
         self

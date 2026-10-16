@@ -201,8 +201,8 @@ pub async fn storage_usage(dir: String) -> Result<String, String> {
 
 /// 按作品列出下载占用（存储页的下载列表：每部的字节数、话数与页数）。走阻塞线程。
 #[tauri::command]
-pub async fn download_comics(dir: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || mojuan_core::download_comics(&dir))
+pub async fn download_usage(dir: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || mojuan_core::download_usage(&dir))
         .await
         .map_err(|e| format!("统计下载占用异常终止: {e}"))
 }
