@@ -85,6 +85,7 @@ pub fn delete_downloaded(dir: &str, source: &str, comic_id: &str) -> Result<bool
 // 下载运行时（wayfinder #20/#22）：队列状态机、并发、重试、取消与进度推送同处 core；
 // 宿主只接页面下载（core 已内置）与进度出口（构造时传入的回调）。
 pub use native::download::{DownloadRuntime, PageDownloader, ProgressSink, DEFAULT_WORKERS};
+pub use native::page_manifest::PageEntry;
 pub use native::queue::{DownloadProgress, DownloadTask, DownloadTaskView, EnqueueResult};
 
 #[cfg(test)]

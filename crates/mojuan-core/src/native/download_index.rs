@@ -53,11 +53,21 @@ static WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 /// 写入一条记录（url → 相对路径）。成功返回 true。
 pub fn record_download(dir: &str, source: &str, comic_id: &str, url: &str, rel_path: &str) -> bool {
-    record_downloads(dir, source, comic_id, &[(url.to_string(), rel_path.to_string())])
+    record_downloads(
+        dir,
+        source,
+        comic_id,
+        &[(url.to_string(), rel_path.to_string())],
+    )
 }
 
 /// 批量写入（一话下载结束时一次性落盘）。成功返回 true。
-pub fn record_downloads(dir: &str, source: &str, comic_id: &str, entries: &[(String, String)]) -> bool {
+pub fn record_downloads(
+    dir: &str,
+    source: &str,
+    comic_id: &str,
+    entries: &[(String, String)],
+) -> bool {
     let _writing = WRITE_LOCK.lock().unwrap();
     let idx_path = index_path(dir, source, comic_id);
     let mut idx = DownloadIndex::load(&idx_path);
@@ -71,7 +81,8 @@ pub fn record_downloads(dir: &str, source: &str, comic_id: &str, entries: &[(Str
 pub fn find_downloaded_file(dir: &str, source: &str, comic_id: &str, url: &str) -> Option<PathBuf> {
     let idx_path = index_path(dir, source, comic_id);
     let idx = DownloadIndex::load(&idx_path);
-    idx.get(url).map(|rel| comic_dir(dir, source, comic_id).join(rel))
+    idx.get(url)
+        .map(|rel| comic_dir(dir, source, comic_id).join(rel))
 }
 
 /// 相对文件路径（`chapter_<n>/<file>`，相对这部作品的下载目录）→ 绝对路径。
@@ -108,15 +119,21 @@ pub fn list_downloaded_with_urls(dir: &str, source: &str, comic_id: &str) -> Str
                                 continue;
                             }
                             let file_name = file_entry.file_name().to_string_lossy().to_string();
+                            // 点开头的文件是元数据（页清单 `.pages.json`），不算一页
+                            if file_name.starts_with('.') {
+                                continue;
+                            }
                             // 相对路径：chapter_<n>/<file>
                             let rel = format!("chapter_{}/{}", chapter_index, file_name);
                             // 在索引里找对应 url
-                            let url = idx.map.iter().find_map(|(u, p)| {
-                                if p == &rel { Some(u.clone()) } else { None }
-                            }).unwrap_or_else(|| {
-                                // 旧数据无索引：url 字段留空，消费方按 path 取文件
-                                "".to_string()
-                            });
+                            let url = idx
+                                .map
+                                .iter()
+                                .find_map(|(u, p)| if p == &rel { Some(u.clone()) } else { None })
+                                .unwrap_or_else(|| {
+                                    // 旧数据无索引：url 字段留空，消费方按 path 取文件
+                                    "".to_string()
+                                });
                             files.push((file_name, url));
                         }
                     }
@@ -194,7 +211,8 @@ mod tests {
     use std::fs;
 
     fn temp_dir(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("mojuan-idx-test-{}-{}", tag, std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("mojuan-idx-test-{}-{}", tag, std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         dir
     }
@@ -207,10 +225,27 @@ mod tests {
         let abs = dir.join("webtoons").join("comic-a").join(rel);
         fs::write(&abs, b"x").unwrap();
 
-        assert!(record_download(dir.to_str().unwrap(), "webtoons", "comic-a", "https://a/b.jpg", rel));
-        let found = find_downloaded_file(dir.to_str().unwrap(), "webtoons", "comic-a", "https://a/b.jpg");
+        assert!(record_download(
+            dir.to_str().unwrap(),
+            "webtoons",
+            "comic-a",
+            "https://a/b.jpg",
+            rel
+        ));
+        let found = find_downloaded_file(
+            dir.to_str().unwrap(),
+            "webtoons",
+            "comic-a",
+            "https://a/b.jpg",
+        );
         assert_eq!(found, Some(abs));
-        assert!(find_downloaded_file(dir.to_str().unwrap(), "webtoons", "comic-a", "https://missing").is_none());
+        assert!(find_downloaded_file(
+            dir.to_str().unwrap(),
+            "webtoons",
+            "comic-a",
+            "https://missing"
+        )
+        .is_none());
 
         let _ = fs::remove_dir_all(&dir);
     }
@@ -226,7 +261,12 @@ mod tests {
         for (_, rel) in &entries {
             fs::write(dir.join("mangadex").join("c1").join(rel), b"x").unwrap();
         }
-        assert!(record_downloads(dir.to_str().unwrap(), "mangadex", "c1", &entries));
+        assert!(record_downloads(
+            dir.to_str().unwrap(),
+            "mangadex",
+            "c1",
+            &entries
+        ));
         assert_eq!(
             find_downloaded_file(dir.to_str().unwrap(), "mangadex", "c1", "https://a/1.jpg"),
             Some(dir.join("mangadex").join("c1").join("chapter_2/1.jpg"))
@@ -245,7 +285,13 @@ mod tests {
         fs::create_dir_all(dir.join("webtoons").join("c1").join("chapter_1")).unwrap();
         let rel = "chapter_1/0.jpg";
         fs::write(dir.join("webtoons").join("c1").join(rel), b"x").unwrap();
-        record_download(dir.to_str().unwrap(), "webtoons", "c1", "https://u/0.jpg", rel);
+        record_download(
+            dir.to_str().unwrap(),
+            "webtoons",
+            "c1",
+            "https://u/0.jpg",
+            rel,
+        );
 
         let json = list_downloaded_with_urls(dir.to_str().unwrap(), "webtoons", "c1");
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -263,7 +309,9 @@ mod tests {
         let chapter = dir.join("baozimh").join("comic-a").join("chapter_1");
         fs::create_dir_all(&chapter).unwrap();
         // 按字符串序写入，确保不是靠 read_dir 的偶然顺序过关
-        for name in ["0.jpg", "1.jpg", "10.jpg", "11.jpg", "2.jpg", "3.jpg", "4.jpg"] {
+        for name in [
+            "0.jpg", "1.jpg", "10.jpg", "11.jpg", "2.jpg", "3.jpg", "4.jpg",
+        ] {
             fs::write(chapter.join(name), b"x").unwrap();
         }
 
@@ -291,6 +339,29 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// 页清单（`.pages.json`）与页混在同一层目录里，页列表不能把它算成一页。
+    #[test]
+    fn list_downloaded_skips_dot_files() {
+        let dir = temp_dir("dot_files");
+        let chapter = dir.join("webtoons").join("c1").join("chapter_1");
+        fs::create_dir_all(&chapter).unwrap();
+        for name in ["0.jpg", "1.jpg", ".pages.json"] {
+            fs::write(chapter.join(name), b"x").unwrap();
+        }
+
+        let json = list_downloaded_with_urls(dir.to_str().unwrap(), "webtoons", "c1");
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let paths: Vec<&str> = v["1"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["path"].as_str().unwrap())
+            .collect();
+        assert_eq!(paths, vec!["chapter_1/0.jpg", "chapter_1/1.jpg"]);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     /// 用户自己导入的文件夹里文件名是任意的，带数字前缀的仍按数值排。
     #[test]
     fn list_downloaded_sorts_user_named_pages_naturally() {
@@ -312,7 +383,11 @@ mod tests {
             .collect();
         assert_eq!(
             paths,
-            vec!["chapter_1/page-1.jpg", "chapter_1/page-2.jpg", "chapter_1/page-10.jpg"]
+            vec![
+                "chapter_1/page-1.jpg",
+                "chapter_1/page-2.jpg",
+                "chapter_1/page-10.jpg"
+            ]
         );
 
         let _ = fs::remove_dir_all(&dir);

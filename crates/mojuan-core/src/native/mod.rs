@@ -6,6 +6,7 @@ pub mod download;
 pub mod download_index;
 pub mod files;
 pub mod ota;
+pub mod page_manifest;
 pub mod queue;
 pub mod webdav;
 

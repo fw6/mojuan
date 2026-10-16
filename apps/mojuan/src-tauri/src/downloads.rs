@@ -3,7 +3,7 @@
 //! 进度优先走 Channel（强类型/有序，绑定发起 subscribe 的 webview，随主窗口常驻；
 //! research #21）；send 失败（webview 已销毁）则清掉并 emit 回退。
 
-use mojuan_core::{DownloadProgress, DownloadRuntime, DownloadTask, ProgressSink};
+use mojuan_core::{DownloadProgress, DownloadRuntime, DownloadTask, PageEntry, ProgressSink};
 use std::sync::{Arc, Mutex};
 use tauri::ipc::Channel;
 use tauri::{Emitter, Manager};
@@ -93,7 +93,7 @@ pub async fn enqueue_download(
         &chapter_title,
         &dir,
         &referer,
-        urls,
+        PageEntry::from_urls(&urls),
     );
     let (result, progress) = runtime.enqueue(task);
     Ok(serde_json::json!({ "result": result.as_str(), "progress": progress }).to_string())
